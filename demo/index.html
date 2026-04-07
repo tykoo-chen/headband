@@ -80,6 +80,18 @@
       <button onclick="simulate()" class="w-full bg-gray-800 text-white py-2 rounded-lg mt-2">模拟检测</button>
     </div>
     <div id="monitor-log" class="mt-4 space-y-2"></div>
+
+    <!-- 战绩区（并入监控页） -->
+    <div class="mt-6 pt-4 border-t">
+      <h3 class="text-lg font-bold mb-2">📊 我的战绩</h3>
+      <div id="stats-content"></div>
+    </div>
+  </section>
+
+  <!-- 5. 好友页 -->
+  <section data-page="friends" class="p-4 hidden">
+    <h2 class="text-xl font-bold mb-2">👥 好友监督</h2>
+    <div id="friends-content"></div>
   </section>
 
 </main>
@@ -94,6 +106,9 @@
   </button>
   <button onclick="switchTab('monitor')" data-tab="monitor" class="flex-1 py-3 text-center text-xs">
     <div class="text-xl">📷</div>监控
+  </button>
+  <button onclick="switchTab('friends')" data-tab="friends" class="flex-1 py-3 text-center text-xs">
+    <div class="text-xl">👥</div>好友
   </button>
 </nav>
 
@@ -165,8 +180,16 @@ const state = {
   chatHistory: JSON.parse(localStorage.getItem('chatHistory') || '[]'),
   rules: JSON.parse(localStorage.getItem('rules') || '[]'),
   planHistory: JSON.parse(localStorage.getItem('planHistory') || '[]'),
+  events: JSON.parse(localStorage.getItem('events') || '[]'),
+  friends: JSON.parse(localStorage.getItem('friends') || '[]'),
+  myId: localStorage.getItem('myId') || '',
+  myName: localStorage.getItem('myName') || '',
   editingRule: null,
 };
+if (!state.myId) {
+  state.myId = 'U' + Math.random().toString(36).slice(2, 8).toUpperCase();
+  localStorage.setItem('myId', state.myId);
+}
 
 const PUNISHMENTS = [
   { id: 'vibrate',   icon: '📳', name: '发带震动',         desc: '硬件就绪后生效',     level: '🟢' },
@@ -191,6 +214,249 @@ function switchTab(name) {
   document.querySelector(`[data-tab="${name}"]`).classList.add('tab-active');
   if (name === 'rules') renderRules();
   if (name === 'plan') renderPlanChat();
+  if (name === 'monitor') renderStats();
+  if (name === 'friends') renderFriends();
+}
+
+// ============== 战绩 ==============
+function renderStats() {
+  const box = document.getElementById('stats-content');
+  if (!box) return;
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const events = state.events || [];
+  const todayEvents = events.filter(e => e.ts >= todayStart);
+
+  // 连续自律天数：从昨天往前数，哪天没有事件就继续，直到遇到有事件的一天
+  let streak = 0;
+  for (let i = 1; i <= 365; i++) {
+    const dayStart = todayStart - i * 86400000;
+    const dayEnd = dayStart + 86400000;
+    const hasEvent = events.some(e => e.ts >= dayStart && e.ts < dayEnd);
+    if (hasEvent) break;
+    streak++;
+  }
+  // 今天如果没触发，也算 +1
+  if (todayEvents.length === 0) streak++;
+
+  // 最近 7 天每天统计
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const dayStart = todayStart - i * 86400000;
+    const dayEnd = dayStart + 86400000;
+    const count = events.filter(e => e.ts >= dayStart && e.ts < dayEnd).length;
+    const label = i === 0 ? '今' : new Date(dayStart).getDate() + '';
+    days.push({ label, count });
+  }
+  const maxCount = Math.max(1, ...days.map(d => d.count));
+
+  // 按规则统计命中次数（总计）
+  const perRule = {};
+  events.forEach(e => {
+    perRule[e.rule_name] = (perRule[e.rule_name] || 0) + 1;
+  });
+  const ruleStats = Object.entries(perRule).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  let html = `
+    <div class="grid grid-cols-3 gap-2 mb-3">
+      <div class="bg-orange-50 rounded-xl p-3 text-center">
+        <div class="text-2xl font-bold text-orange-600">${todayEvents.length}</div>
+        <div class="text-xs text-gray-500">今日触发</div>
+      </div>
+      <div class="bg-green-50 rounded-xl p-3 text-center">
+        <div class="text-2xl font-bold text-green-600">${streak}</div>
+        <div class="text-xs text-gray-500">连续自律天</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 text-center">
+        <div class="text-2xl font-bold text-gray-800">${events.length}</div>
+        <div class="text-xs text-gray-500">累计触发</div>
+      </div>
+    </div>
+
+    <div class="bg-white border rounded-xl p-3 mb-3">
+      <div class="text-sm font-semibold mb-2">📉 最近 7 天</div>
+      <div class="flex items-end gap-1 h-24">
+        ${days.map(d => `
+          <div class="flex-1 flex flex-col items-center justify-end">
+            <div class="text-xs text-gray-400">${d.count || ''}</div>
+            <div class="w-full ${d.count > 0 ? 'bg-red-400' : 'bg-green-300'} rounded-t" style="height: ${(d.count / maxCount) * 80}%; min-height: 4px;"></div>
+            <div class="text-xs text-gray-500 mt-1">${d.label}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  if (ruleStats.length > 0) {
+    html += `<div class="bg-white border rounded-xl p-3 mb-3">
+      <div class="text-sm font-semibold mb-2">🏆 最常违规的事</div>
+      ${ruleStats.map(([name, count]) => `
+        <div class="flex justify-between text-sm py-1 border-b last:border-0">
+          <span>${escapeHtml(name)}</span>
+          <span class="text-red-500 font-semibold">${count} 次</span>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  if (events.length > 0) {
+    html += `<button onclick="clearEvents()" class="w-full text-xs text-gray-400 py-2">清空战绩记录</button>`;
+  } else {
+    html += `<div class="text-center text-gray-400 py-6 text-sm">还没有任何触发记录<br>去上面模拟检测试试</div>`;
+  }
+
+  box.innerHTML = html;
+}
+
+function clearEvents() {
+  if (!confirm('清空所有战绩记录？')) return;
+  state.events = [];
+  localStorage.setItem('events', '[]');
+  renderStats();
+}
+
+// ============== 好友 ==============
+function renderFriends() {
+  const box = document.getElementById('friends-content');
+  if (!box) return;
+  const myName = state.myName || '我';
+  const todayStart = new Date().setHours(0, 0, 0, 0);
+  const myTodayCount = (state.events || []).filter(e => e.ts >= todayStart).length;
+
+  // 连续自律天数（同 renderStats）
+  let streak = 0;
+  for (let i = 1; i <= 365; i++) {
+    const dayStart = todayStart - i * 86400000;
+    const dayEnd = dayStart + 86400000;
+    if ((state.events || []).some(e => e.ts >= dayStart && e.ts < dayEnd)) break;
+    streak++;
+  }
+  if (myTodayCount === 0) streak++;
+
+  // 排行榜：自己 + 好友
+  const board = [
+    { name: myName + '（我）', id: state.myId, today: myTodayCount, streak, me: true },
+    ...(state.friends || []).map(f => ({ name: f.name, id: f.id, today: f.today || 0, streak: f.streak || 0, me: false })),
+  ];
+  board.sort((a, b) => b.streak - a.streak || a.today - b.today);
+
+  let html = `
+    <div class="bg-gradient-to-br from-orange-400 to-red-500 rounded-2xl p-4 text-white mb-4">
+      <div class="text-xs opacity-80">我的监督码</div>
+      <div class="text-2xl font-bold tracking-wider">${state.myId}</div>
+      <div class="flex gap-2 mt-3">
+        <button onclick="copyMyId()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">📋 复制</button>
+        <button onclick="shareMyStats()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">📤 分享战绩</button>
+      </div>
+    </div>
+
+    <div class="bg-white border rounded-xl p-3 mb-3">
+      <div class="text-sm font-semibold mb-2">设置昵称</div>
+      <input id="my-name-input" value="${escapeHtml(state.myName || '')}" placeholder="给自己起个名字" class="w-full border rounded-lg p-2 text-sm" onblur="saveMyName(this.value)">
+    </div>
+
+    <div class="bg-white border rounded-xl p-3 mb-3">
+      <div class="text-sm font-semibold mb-2">➕ 添加监督对象</div>
+      <div class="flex gap-2">
+        <input id="friend-id-input" placeholder="好友的监督码" class="flex-1 border rounded-lg p-2 text-sm">
+        <button onclick="addFriend()" class="bg-orange-500 text-white px-4 rounded-lg text-sm">添加</button>
+      </div>
+      <div class="text-xs text-gray-400 mt-2">💡 让好友把他的战绩分享给你，粘贴到下面可以更新</div>
+      <textarea id="friend-import" rows="2" placeholder="粘贴好友分享的战绩文本..." class="w-full border rounded-lg p-2 text-xs mt-2"></textarea>
+      <button onclick="importFriendStats()" class="w-full mt-2 bg-gray-800 text-white py-2 rounded-lg text-sm">导入好友战绩</button>
+    </div>
+
+    <div class="bg-white border rounded-xl p-3">
+      <div class="text-sm font-semibold mb-2">🏆 排行榜</div>
+      ${board.map((b, i) => `
+        <div class="flex items-center gap-3 py-2 border-b last:border-0 ${b.me ? 'bg-orange-50 -mx-3 px-3 rounded' : ''}">
+          <div class="text-lg font-bold text-gray-400 w-6">${i + 1}</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold">${escapeHtml(b.name)}</div>
+            <div class="text-xs text-gray-400">${b.id}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-green-600">🔥 ${b.streak} 天</div>
+            <div class="text-xs text-red-500">今日 ${b.today} 次</div>
+          </div>
+          ${!b.me ? `<button onclick="removeFriend('${b.id}')" class="text-gray-300 text-xs">✕</button>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+  box.innerHTML = html;
+}
+
+function saveMyName(name) {
+  state.myName = name.trim();
+  localStorage.setItem('myName', state.myName);
+}
+
+function copyMyId() {
+  navigator.clipboard.writeText(state.myId).then(() => alert('已复制：' + state.myId));
+}
+
+function shareMyStats() {
+  const todayStart = new Date().setHours(0, 0, 0, 0);
+  const today = (state.events || []).filter(e => e.ts >= todayStart).length;
+  let streak = 0;
+  for (let i = 1; i <= 365; i++) {
+    const dayStart = todayStart - i * 86400000;
+    const dayEnd = dayStart + 86400000;
+    if ((state.events || []).some(e => e.ts >= dayStart && e.ts < dayEnd)) break;
+    streak++;
+  }
+  if (today === 0) streak++;
+  const payload = { id: state.myId, name: state.myName || '匿名', today, streak, ts: Date.now() };
+  const text = `【AI 自律发带战绩】\n${payload.name}（${payload.id}）\n🔥 连续自律 ${streak} 天\n今日触发 ${today} 次\n---\n${btoa(unescape(encodeURIComponent(JSON.stringify(payload))))}`;
+  if (navigator.share) {
+    navigator.share({ text }).catch(() => navigator.clipboard.writeText(text).then(() => alert('已复制到剪贴板')));
+  } else {
+    navigator.clipboard.writeText(text).then(() => alert('战绩已复制到剪贴板，粘贴给好友即可'));
+  }
+}
+
+function addFriend() {
+  const id = document.getElementById('friend-id-input').value.trim().toUpperCase();
+  if (!id) return alert('填入好友的监督码');
+  if (id === state.myId) return alert('不能加自己');
+  if ((state.friends || []).some(f => f.id === id)) return alert('已经加过了');
+  state.friends.push({ id, name: id, today: 0, streak: 0 });
+  localStorage.setItem('friends', JSON.stringify(state.friends));
+  document.getElementById('friend-id-input').value = '';
+  renderFriends();
+}
+
+function removeFriend(id) {
+  if (!confirm('移除这位好友？')) return;
+  state.friends = (state.friends || []).filter(f => f.id !== id);
+  localStorage.setItem('friends', JSON.stringify(state.friends));
+  renderFriends();
+}
+
+function importFriendStats() {
+  const text = document.getElementById('friend-import').value.trim();
+  if (!text) return;
+  const match = text.match(/([A-Za-z0-9+/=]{20,})/);
+  if (!match) return alert('没找到战绩数据，请粘贴完整的分享文本');
+  try {
+    const data = JSON.parse(decodeURIComponent(escape(atob(match[1]))));
+    let f = (state.friends || []).find(x => x.id === data.id);
+    if (!f) {
+      f = { id: data.id };
+      state.friends.push(f);
+    }
+    f.name = data.name || data.id;
+    f.today = data.today || 0;
+    f.streak = data.streak || 0;
+    f.updated = data.ts;
+    localStorage.setItem('friends', JSON.stringify(state.friends));
+    document.getElementById('friend-import').value = '';
+    alert(`✅ 已更新 ${f.name} 的战绩`);
+    renderFriends();
+  } catch (e) {
+    alert('战绩数据损坏：' + e.message);
+  }
 }
 
 // ============== 设置 ==============
@@ -724,8 +990,21 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
         return `<div class="mt-2"><b>⚠️ ${escapeHtml(r.name)}</b><div class="mt-1">${ps}</div></div>`;
       }).join('');
       entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-red-600 font-semibold">🚨 触发 ${matched.length} 条规则</div><div class="text-xs text-gray-500 mt-1">${escapeHtml(json.reason||'')}</div>${punishHtml}`;
-      // 触发即时反馈：振动手机
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
+      // 写入战绩事件
+      matched.forEach(r => {
+        state.events.push({
+          ts: Date.now(),
+          rule_id: r.id,
+          rule_name: r.name,
+          reason: json.reason || '',
+          punishments: r.punishments || [],
+        });
+      });
+      // 只保留最近 500 条
+      if (state.events.length > 500) state.events = state.events.slice(-500);
+      localStorage.setItem('events', JSON.stringify(state.events));
+      renderStats();
     }
   } catch (e) {
     entry.innerHTML = `<div class="text-red-500">❌ ${e.message}</div>`;
