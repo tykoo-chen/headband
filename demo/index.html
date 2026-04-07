@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="自律发带">
+<meta name="theme-color" content="#f97316">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>AI 自律发带</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+  .tab-active { color: #f97316; }
+  .scroll-hide::-webkit-scrollbar { display: none; }
+  .bubble-user { background: #f97316; color: white; }
+  .bubble-ai { background: #f3f4f6; color: #111; }
+  .punish-card { transition: all .15s; }
+  .punish-card.checked { background: #fff7ed; border-color: #f97316; }
+  textarea, input { font-size: 16px; }
+</style>
+</head>
+<body class="bg-gray-50 max-w-md mx-auto min-h-screen flex flex-col">
+
+<!-- 顶部 -->
+<header class="bg-white border-b sticky top-0 z-10">
+  <div class="px-4 py-3 flex items-center justify-between">
+    <div>
+      <div class="text-lg font-bold">AI 自律发带</div>
+      <div class="text-xs text-gray-500" id="header-sub">未连接 API</div>
+    </div>
+    <button onclick="openSettings()" class="text-2xl">⚙️</button>
+  </div>
+</header>
+
+<!-- 主内容区 -->
+<main class="flex-1 overflow-y-auto pb-20" id="main">
+
+  <!-- 1. 对话页 -->
+  <section data-page="chat" class="p-4">
+    <div id="chat-list" class="space-y-3 mb-4 min-h-[60vh]"></div>
+    <div class="fixed bottom-16 left-0 right-0 max-w-md mx-auto bg-white border-t p-2 flex gap-2">
+      <textarea id="chat-input" rows="1" placeholder="跟 AI 聊聊你今天的目标..." class="flex-1 border rounded-2xl px-3 py-2 resize-none outline-none focus:border-orange-400"></textarea>
+      <button onclick="sendChat()" class="bg-orange-500 text-white px-4 rounded-2xl">发送</button>
+    </div>
+  </section>
+
+  <!-- 2. 规划页 -->
+  <section data-page="plan" class="p-4 hidden">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-xl font-bold">🎯 AI 规划教练</h2>
+      <button onclick="resetPlan()" class="text-xs text-gray-400">重开</button>
+    </div>
+    <p class="text-sm text-gray-500 mb-3">告诉 AI 你想达成什么。AI 会先反问你几个问题，把目标拆清楚，再给出可执行方案和规则。</p>
+    <div id="plan-chat" class="space-y-3 mb-3 min-h-[40vh]"></div>
+    <div id="plan-result" class="space-y-3 mb-24"></div>
+    <div class="fixed bottom-16 left-0 right-0 max-w-md mx-auto bg-white border-t p-2 flex gap-2" id="plan-input-bar">
+      <textarea id="plan-input" rows="1" placeholder="先说一句你想达成的目标..." class="flex-1 border rounded-2xl px-3 py-2 resize-none outline-none focus:border-orange-400"></textarea>
+      <button onclick="sendPlan()" class="bg-orange-500 text-white px-4 rounded-2xl">发送</button>
+    </div>
+  </section>
+
+  <!-- 3. 规则与触发页 -->
+  <section data-page="rules" class="p-4 hidden">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xl font-bold">📋 我的规则</h2>
+      <button onclick="newRule()" class="text-orange-500 font-medium">+ 新建</button>
+    </div>
+    <div id="rules-list" class="space-y-3"></div>
+  </section>
+
+  <!-- 4. 监控页（模拟硬件） -->
+  <section data-page="monitor" class="p-4 hidden">
+    <h2 class="text-xl font-bold mb-2">📷 实时监控</h2>
+    <p class="text-sm text-gray-500 mb-3">硬件就绪后会自动接入。现在你可以模拟一帧来测试规则。</p>
+    <div class="bg-black aspect-video rounded-xl flex items-center justify-center text-white text-sm relative overflow-hidden">
+      <video id="cam-preview" autoplay playsinline muted class="w-full h-full object-cover hidden"></video>
+      <div id="cam-placeholder">📷 摄像头未启动</div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mt-3">
+      <button onclick="startCamera()" class="bg-gray-200 py-2 rounded-lg">📷 开启摄像头</button>
+      <button onclick="captureAndCheck()" class="bg-orange-500 text-white py-2 rounded-lg">🔍 抽帧检测</button>
+    </div>
+    <div class="mt-2">
+      <label class="text-sm text-gray-500">或手动模拟一段场景描述：</label>
+      <textarea id="sim-text" rows="2" placeholder="例：我正在喝啤酒、我在抽烟、我在背单词" class="w-full border rounded-lg p-2 mt-1 outline-none focus:border-orange-400"></textarea>
+      <button onclick="simulate()" class="w-full bg-gray-800 text-white py-2 rounded-lg mt-2">模拟检测</button>
+    </div>
+    <div id="monitor-log" class="mt-4 space-y-2"></div>
+  </section>
+
+</main>
+
+<!-- 底部 Tab -->
+<nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t flex">
+  <button onclick="switchTab('chat')" data-tab="chat" class="flex-1 py-3 text-center text-xs">
+    <div class="text-xl">💬</div>对话
+  </button>
+  <button onclick="switchTab('plan')" data-tab="plan" class="flex-1 py-3 text-center text-xs">
+    <div class="text-xl">🎯</div>规划
+  </button>
+  <button onclick="switchTab('rules')" data-tab="rules" class="flex-1 py-3 text-center text-xs">
+    <div class="text-xl">📋</div>规则
+  </button>
+  <button onclick="switchTab('monitor')" data-tab="monitor" class="flex-1 py-3 text-center text-xs">
+    <div class="text-xl">📷</div>监控
+  </button>
+</nav>
+
+<!-- 设置弹窗 -->
+<div id="settings-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+    <h3 class="text-lg font-bold mb-3">设置</h3>
+    <label class="text-sm text-gray-600">Anthropic API Key</label>
+    <input id="api-key-input" type="password" placeholder="sk-ant-..." class="w-full border rounded-lg p-2 mt-1">
+    <p class="text-xs text-gray-400 mt-1">仅存在你手机本地（localStorage），不上传任何服务器</p>
+    <div class="flex gap-2 mt-4">
+      <button onclick="closeSettings()" class="flex-1 py-2 border rounded-lg">取消</button>
+      <button onclick="saveSettings()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 规则编辑弹窗 -->
+<div id="rule-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto">
+    <h3 class="text-lg font-bold mb-3" id="rule-modal-title">新建规则</h3>
+
+    <label class="text-sm text-gray-600">规则名称</label>
+    <input id="rule-name" placeholder="例：不许抽烟" class="w-full border rounded-lg p-2 mt-1 mb-3">
+
+    <label class="text-sm text-gray-600">触发条件（用人话描述）</label>
+    <textarea id="rule-condition" rows="2" placeholder="例：画面中我正在抽烟或手里有点燃的香烟" class="w-full border rounded-lg p-2 mt-1 mb-3"></textarea>
+
+    <label class="text-sm text-gray-600">类型</label>
+    <select id="rule-type" class="w-full border rounded-lg p-2 mt-1 mb-3">
+      <option value="instant">即时违规（看到就罚）</option>
+      <option value="window">任务窗口（一段时间内必须做某事）</option>
+    </select>
+
+    <div class="mb-3">
+      <div class="text-sm font-semibold mb-2">⚠️ 选择惩罚（多选）</div>
+      <div id="punish-options" class="space-y-2"></div>
+    </div>
+
+    <div class="flex gap-2">
+      <button onclick="closeRuleModal()" class="flex-1 py-2 border rounded-lg">取消</button>
+      <button onclick="saveRule()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============== 状态 ==============
+const state = {
+  apiKey: localStorage.getItem('apiKey') || '',
+  chatHistory: JSON.parse(localStorage.getItem('chatHistory') || '[]'),
+  rules: JSON.parse(localStorage.getItem('rules') || '[]'),
+  editingRule: null,
+};
+
+const PUNISHMENTS = [
+  { id: 'vibrate',   icon: '📳', name: '发带震动',         desc: '硬件就绪后生效',     level: '🟢' },
+  { id: 'buzzer',    icon: '🔔', name: '发带蜂鸣',         desc: '公共场合社死',       level: '🟢' },
+  { id: 'led',       icon: '💡', name: 'LED 闪光',         desc: '强光视觉干扰',       level: '🟢' },
+  { id: 'bark',      icon: '📱', name: '推送通知到自己',    desc: '通过 Bark / 通知',  level: '🟡' },
+  { id: 'email',     icon: '📧', name: '邮件提醒自己',     desc: '发到自己邮箱',       level: '🟡' },
+  { id: 'wecom',    icon: '👥', name: '企微/钉钉群通报',   desc: '让群里人都知道',     level: '🟠' },
+  { id: 'sms',       icon: '📨', name: '短信发给监督人',    desc: '发给指定手机号',     level: '🟠' },
+  { id: 'social',    icon: '🌐', name: '自动发微博/朋友圈', desc: '公开打卡失败',       level: '🟠' },
+  { id: 'deduct',    icon: '💰', name: '扣钱（押金）',     desc: '从托管押金里扣',     level: '🔴' },
+  { id: 'donate',    icon: '🎁', name: '强制小额捐款',     desc: '捐给慈善机构',       level: '🔴' },
+  { id: 'lock',      icon: '🔒', name: '锁定电脑/暂停视频', desc: '强制中断当前活动',   level: '🔴' },
+  { id: 'release',   icon: '⚠️', name: '释放质押文件',     desc: '不可逆，慎选',       level: '🟣' },
+];
+
+// ============== Tab ==============
+function switchTab(name) {
+  document.querySelectorAll('[data-page]').forEach(s => s.classList.add('hidden'));
+  document.querySelector(`[data-page="${name}"]`).classList.remove('hidden');
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('tab-active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('tab-active');
+  if (name === 'rules') renderRules();
+}
+
+// ============== 设置 ==============
+function openSettings() {
+  document.getElementById('api-key-input').value = state.apiKey;
+  document.getElementById('settings-modal').classList.remove('hidden');
+  document.getElementById('settings-modal').classList.add('flex');
+}
+function closeSettings() {
+  document.getElementById('settings-modal').classList.add('hidden');
+  document.getElementById('settings-modal').classList.remove('flex');
+}
+function saveSettings() {
+  state.apiKey = document.getElementById('api-key-input').value.trim();
+  localStorage.setItem('apiKey', state.apiKey);
+  document.getElementById('header-sub').textContent = state.apiKey ? '✅ API 已连接' : '未连接 API';
+  closeSettings();
+}
+
+// ============== Claude API 调用 ==============
+async function callClaude(messages, system = null) {
+  if (!state.apiKey) {
+    alert('请先在右上角 ⚙️ 设置中填入 Anthropic API Key');
+    throw new Error('no api key');
+  }
+  const body = {
+    model: 'claude-opus-4-5',
+    max_tokens: 1024,
+    messages,
+  };
+  if (system) body.system = system;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': state.apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const data = await res.json();
+  return data.content[0].text;
+}
+
+// ============== 1. 对话 ==============
+function renderChat() {
+  const list = document.getElementById('chat-list');
+  list.innerHTML = '';
+  if (state.chatHistory.length === 0) {
+    list.innerHTML = '<div class="text-center text-gray-400 mt-20"><div class="text-4xl mb-2">👋</div>跟你的自律 AI 聊聊吧<div class="text-xs mt-1">"我想戒烟"、"帮我规划学习"</div></div>';
+    return;
+  }
+  state.chatHistory.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start');
+    div.innerHTML = `<div class="max-w-[80%] px-4 py-2 rounded-2xl ${m.role==='user'?'bubble-user':'bubble-ai'} whitespace-pre-wrap">${escapeHtml(m.content)}</div>`;
+    list.appendChild(div);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  state.chatHistory.push({ role: 'user', content: text });
+  input.value = '';
+  renderChat();
+
+  const loading = { role: 'assistant', content: '...' };
+  state.chatHistory.push(loading);
+  renderChat();
+
+  try {
+    const reply = await callClaude(
+      state.chatHistory.filter(m => m.content !== '...'),
+      '你是一个严厉而温暖的自律教练，帮助用户分析他们的自律目标，给出可执行的建议。回答要简短、直接、有行动力。'
+    );
+    state.chatHistory.pop();
+    state.chatHistory.push({ role: 'assistant', content: reply });
+  } catch (e) {
+    state.chatHistory.pop();
+    state.chatHistory.push({ role: 'assistant', content: '❌ 出错了：' + e.message });
+  }
+  localStorage.setItem('chatHistory', JSON.stringify(state.chatHistory));
+  renderChat();
+}
+
+// ============== 2. 规划 ==============
+async function generatePlan() {
+  const goal = document.getElementById('plan-input').value.trim();
+  if (!goal) return alert('先描述你的目标');
+  const result = document.getElementById('plan-result');
+  result.innerHTML = '<div class="text-center text-gray-400 py-4">AI 正在思考中...</div>';
+
+  const sys = `你是自律规划专家。用户会告诉你他的目标，你需要拆成 2-5 条具体可监控的规则。
+每条规则必须可以通过"摄像头第一视角观察"或"时间窗口"来判断。
+返回严格的 JSON 数组，格式：
+[{"name":"规则名","condition":"摄像头判断的具体描述","type":"instant或window","suggested_punishments":["vibrate","bark"]}]
+type=instant 表示看到立刻惩罚；window 表示一段时间内必须做某事。
+suggested_punishments 从这些 ID 中选: vibrate, buzzer, led, bark, email, wecom, sms, social, deduct, donate, lock。
+只返回 JSON，不要任何其他文字。`;
+
+  try {
+    const reply = await callClaude([{ role: 'user', content: goal }], sys);
+    const json = reply.match(/\[[\s\S]*\]/)[0];
+    const plans = JSON.parse(json);
+    result.innerHTML = '';
+    plans.forEach((p, i) => {
+      const card = document.createElement('div');
+      card.className = 'border rounded-xl p-3 bg-white';
+      card.innerHTML = `
+        <div class="font-semibold">${escapeHtml(p.name)}</div>
+        <div class="text-sm text-gray-500 mt-1">${escapeHtml(p.condition)}</div>
+        <div class="text-xs text-gray-400 mt-1">类型：${p.type === 'instant' ? '即时违规' : '任务窗口'}</div>
+        <div class="text-xs text-gray-400 mt-1">建议惩罚：${(p.suggested_punishments||[]).map(id=>{
+          const x = PUNISHMENTS.find(p=>p.id===id); return x?x.icon+x.name:id;
+        }).join('、')}</div>
+        <button class="mt-2 w-full bg-orange-500 text-white py-2 rounded-lg text-sm" onclick='adoptPlan(${JSON.stringify(p).replace(/'/g,"\\'")})'>采纳为规则</button>`;
+      result.appendChild(card);
+    });
+  } catch (e) {
+    result.innerHTML = `<div class="text-red-500 text-sm">❌ ${e.message}</div>`;
+  }
+}
+
+function adoptPlan(plan) {
+  state.rules.push({
+    id: Date.now(),
+    name: plan.name,
+    condition: plan.condition,
+    type: plan.type,
+    punishments: plan.suggested_punishments || [],
+    enabled: true,
+  });
+  localStorage.setItem('rules', JSON.stringify(state.rules));
+  alert('✅ 已添加到规则');
+}
+
+// ============== 3. 规则 ==============
+function renderRules() {
+  const list = document.getElementById('rules-list');
+  if (state.rules.length === 0) {
+    list.innerHTML = '<div class="text-center text-gray-400 py-12"><div class="text-4xl mb-2">📋</div>还没有规则<div class="text-xs mt-1">去"规划"页让 AI 帮你生成，或手动新建</div></div>';
+    return;
+  }
+  list.innerHTML = '';
+  state.rules.forEach((r, i) => {
+    const card = document.createElement('div');
+    card.className = 'border rounded-xl p-3 bg-white';
+    card.innerHTML = `
+      <div class="flex items-start justify-between">
+        <div class="flex-1">
+          <div class="font-semibold">${escapeHtml(r.name)}</div>
+          <div class="text-sm text-gray-500 mt-1">${escapeHtml(r.condition)}</div>
+        </div>
+        <label class="ml-2"><input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRule(${i})"></label>
+      </div>
+      <div class="text-xs text-gray-400 mt-2">${r.type==='instant'?'即时':'窗口'} · ${(r.punishments||[]).length} 项惩罚</div>
+      <div class="flex gap-2 mt-2">
+        <button onclick="editRule(${i})" class="flex-1 text-sm py-1 border rounded-lg">编辑</button>
+        <button onclick="deleteRule(${i})" class="flex-1 text-sm py-1 border rounded-lg text-red-500">删除</button>
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+function toggleRule(i) { state.rules[i].enabled = !state.rules[i].enabled; saveRules(); }
+function deleteRule(i) { if(confirm('删除这条规则？')){ state.rules.splice(i,1); saveRules(); renderRules(); } }
+function saveRules() { localStorage.setItem('rules', JSON.stringify(state.rules)); }
+
+function newRule() {
+  state.editingRule = null;
+  document.getElementById('rule-modal-title').textContent = '新建规则';
+  document.getElementById('rule-name').value = '';
+  document.getElementById('rule-condition').value = '';
+  document.getElementById('rule-type').value = 'instant';
+  renderPunishOptions([]);
+  showRuleModal();
+}
+
+function editRule(i) {
+  state.editingRule = i;
+  const r = state.rules[i];
+  document.getElementById('rule-modal-title').textContent = '编辑规则';
+  document.getElementById('rule-name').value = r.name;
+  document.getElementById('rule-condition').value = r.condition;
+  document.getElementById('rule-type').value = r.type;
+  renderPunishOptions(r.punishments || []);
+  showRuleModal();
+}
+
+function renderPunishOptions(selected) {
+  const box = document.getElementById('punish-options');
+  box.innerHTML = '';
+  PUNISHMENTS.forEach(p => {
+    const checked = selected.includes(p.id);
+    const div = document.createElement('label');
+    div.className = `punish-card flex items-center gap-2 border rounded-lg p-2 cursor-pointer ${checked?'checked':''}`;
+    div.innerHTML = `
+      <input type="checkbox" data-pid="${p.id}" ${checked?'checked':''} class="punish-cb">
+      <span class="text-xl">${p.icon}</span>
+      <div class="flex-1">
+        <div class="text-sm font-medium">${p.name} <span class="text-xs">${p.level}</span></div>
+        <div class="text-xs text-gray-500">${p.desc}</div>
+      </div>`;
+    div.querySelector('input').addEventListener('change', e => {
+      div.classList.toggle('checked', e.target.checked);
+    });
+    box.appendChild(div);
+  });
+}
+
+function saveRule() {
+  const name = document.getElementById('rule-name').value.trim();
+  const cond = document.getElementById('rule-condition').value.trim();
+  const type = document.getElementById('rule-type').value;
+  const punishments = [...document.querySelectorAll('.punish-cb:checked')].map(i=>i.dataset.pid);
+  if (!name || !cond) return alert('名称和条件不能为空');
+  if (punishments.length === 0) return alert('至少选一种惩罚');
+  const rule = { id: Date.now(), name, condition: cond, type, punishments, enabled: true };
+  if (state.editingRule !== null) {
+    rule.id = state.rules[state.editingRule].id;
+    state.rules[state.editingRule] = rule;
+  } else {
+    state.rules.push(rule);
+  }
+  saveRules();
+  closeRuleModal();
+  renderRules();
+}
+
+function showRuleModal() {
+  document.getElementById('rule-modal').classList.remove('hidden');
+  document.getElementById('rule-modal').classList.add('flex');
+}
+function closeRuleModal() {
+  document.getElementById('rule-modal').classList.add('hidden');
+  document.getElementById('rule-modal').classList.remove('flex');
+}
+
+// ============== 4. 监控（模拟硬件） ==============
+let camStream = null;
+async function startCamera() {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const v = document.getElementById('cam-preview');
+    v.srcObject = camStream;
+    v.classList.remove('hidden');
+    document.getElementById('cam-placeholder').classList.add('hidden');
+  } catch (e) {
+    alert('无法打开摄像头：' + e.message);
+  }
+}
+
+async function captureAndCheck() {
+  if (!camStream) return alert('请先开启摄像头');
+  const v = document.getElementById('cam-preview');
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  const dataUrl = c.toDataURL('image/jpeg', 0.7);
+  const base64 = dataUrl.split(',')[1];
+  await runDetection({ image: base64 });
+}
+
+async function simulate() {
+  const text = document.getElementById('sim-text').value.trim();
+  if (!text) return;
+  await runDetection({ text });
+}
+
+async function runDetection(input) {
+  const enabledRules = state.rules.filter(r => r.enabled);
+  if (enabledRules.length === 0) return alert('没有启用的规则');
+  const log = document.getElementById('monitor-log');
+  const entry = document.createElement('div');
+  entry.className = 'border rounded-lg p-3 bg-white text-sm';
+  entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div>🔍 检测中...</div>`;
+  log.prepend(entry);
+
+  const sys = `你是行为审查助手。判断输入内容是否触发以下任一规则。返回严格 JSON: {"matched": ["规则ID", ...], "reason": "简短说明"}。只返回 JSON。
+规则列表：
+${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition}"`).join('\n')}`;
+
+  try {
+    let messages;
+    if (input.image) {
+      messages = [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: input.image }},
+        { type: 'text', text: '请按系统指令判断这张图。' }
+      ]}];
+    } else {
+      messages = [{ role: 'user', content: '场景描述：' + input.text }];
+    }
+    const reply = await callClaude(messages, sys);
+    const json = JSON.parse(reply.match(/\{[\s\S]*\}/)[0]);
+    const matched = (json.matched || []).map(id => enabledRules.find(r => String(r.id) === String(id))).filter(Boolean);
+    if (matched.length === 0) {
+      entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-green-600">✅ 未触发任何规则</div><div class="text-xs text-gray-500 mt-1">${escapeHtml(json.reason||'')}</div>`;
+    } else {
+      const punishHtml = matched.map(r => {
+        const ps = (r.punishments||[]).map(pid => {
+          const p = PUNISHMENTS.find(x=>x.id===pid);
+          return p ? `<span class="inline-block bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs mr-1">${p.icon}${p.name}</span>` : '';
+        }).join('');
+        return `<div class="mt-2"><b>⚠️ ${escapeHtml(r.name)}</b><div class="mt-1">${ps}</div></div>`;
+      }).join('');
+      entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-red-600 font-semibold">🚨 触发 ${matched.length} 条规则</div><div class="text-xs text-gray-500 mt-1">${escapeHtml(json.reason||'')}</div>${punishHtml}`;
+      // 触发即时反馈：振动手机
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
+    }
+  } catch (e) {
+    entry.innerHTML = `<div class="text-red-500">❌ ${e.message}</div>`;
+  }
+}
+
+// ============== 工具 ==============
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ============== 启动 ==============
+if (state.apiKey) document.getElementById('header-sub').textContent = '✅ API 已连接';
+renderChat();
+switchTab('chat');
+
+// 注册 Service Worker（PWA）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
