@@ -38,16 +38,7 @@
 <!-- 主内容区 -->
 <main class="flex-1 overflow-y-auto pb-20" id="main">
 
-  <!-- 1. 对话页 -->
-  <section data-page="chat" class="p-4">
-    <div id="chat-list" class="space-y-3 mb-4 min-h-[60vh]"></div>
-    <div class="fixed bottom-16 left-0 right-0 max-w-md mx-auto bg-white border-t p-2 flex gap-2">
-      <textarea id="chat-input" rows="1" placeholder="跟 AI 聊聊你今天的目标..." class="flex-1 border rounded-2xl px-3 py-2 resize-none outline-none focus:border-orange-400"></textarea>
-      <button onclick="sendChat()" class="bg-orange-500 text-white px-4 rounded-2xl">发送</button>
-    </div>
-  </section>
-
-  <!-- 2. 规划页 -->
+  <!-- 1. 规划（教练）页 -->
   <section data-page="plan" class="p-4 hidden">
     <div class="flex items-center justify-between mb-2">
       <h2 class="text-xl font-bold">🎯 AI 规划教练</h2>
@@ -95,11 +86,8 @@
 
 <!-- 底部 Tab -->
 <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t flex">
-  <button onclick="switchTab('chat')" data-tab="chat" class="flex-1 py-3 text-center text-xs">
-    <div class="text-xl">💬</div>对话
-  </button>
   <button onclick="switchTab('plan')" data-tab="plan" class="flex-1 py-3 text-center text-xs">
-    <div class="text-xl">🎯</div>规划
+    <div class="text-xl">🎯</div>教练
   </button>
   <button onclick="switchTab('rules')" data-tab="rules" class="flex-1 py-3 text-center text-xs">
     <div class="text-xl">📋</div>规则
@@ -750,7 +738,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;'
 // ============== 启动 ==============
 if (state.apiKey) document.getElementById('header-sub').textContent = '✅ API 已连接';
 renderChat();
-switchTab('chat');
+switchTab('plan');
 
 // 注册 Service Worker（PWA）
 if ('serviceWorker' in navigator) {
