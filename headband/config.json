@@ -1,0 +1,11 @@
+{
+  "server_url": "http://CHANGE_ME:5000",
+  "device_id": "headband-01",
+  "frame_interval_seconds": 3,
+  "jpeg_quality": 70,
+  "gpio": {
+    "motor": 5,
+    "buzzer": 6,
+    "led": 13
+  }
+}

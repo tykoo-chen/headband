@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Self-Discipline Headband Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/headband
+ExecStart=/usr/bin/python3 /root/headband/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
