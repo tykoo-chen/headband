@@ -158,6 +158,7 @@ const state = {
   apiKey: localStorage.getItem('apiKey') || '',
   chatHistory: JSON.parse(localStorage.getItem('chatHistory') || '[]'),
   rules: JSON.parse(localStorage.getItem('rules') || '[]'),
+  planHistory: JSON.parse(localStorage.getItem('planHistory') || '[]'),
   editingRule: null,
 };
 
@@ -183,6 +184,7 @@ function switchTab(name) {
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('tab-active'));
   document.querySelector(`[data-tab="${name}"]`).classList.add('tab-active');
   if (name === 'rules') renderRules();
+  if (name === 'plan') renderPlanChat();
 }
 
 // ============== 设置 ==============
@@ -277,55 +279,162 @@ async function sendChat() {
   renderChat();
 }
 
-// ============== 2. 规划 ==============
-async function generatePlan() {
-  const goal = document.getElementById('plan-input').value.trim();
-  if (!goal) return alert('先描述你的目标');
-  const result = document.getElementById('plan-result');
-  result.innerHTML = '<div class="text-center text-gray-400 py-4">AI 正在思考中...</div>';
+// ============== 2. 规划（反向提问式教练） ==============
+const PLAN_SYSTEM = `你是一个严厉、直接、有洞察力的自律教练。用户会给你一个模糊的目标，你的工作不是立刻给方案，而是**反向提问**把目标逼清楚，最后产出可执行清单。
 
-  const sys = `你是自律规划专家。用户会告诉你他的目标，你需要拆成 2-5 条具体可监控的规则。
-每条规则必须可以通过"摄像头第一视角观察"或"时间窗口"来判断。
-返回严格的 JSON 数组，格式：
-[{"name":"规则名","condition":"摄像头判断的具体描述","type":"instant或window","suggested_punishments":["vibrate","bark"]}]
-type=instant 表示看到立刻惩罚；window 表示一段时间内必须做某事。
-suggested_punishments 从这些 ID 中选: vibrate, buzzer, led, bark, email, wecom, sms, social, deduct, donate, lock。
-只返回 JSON，不要任何其他文字。`;
+严格遵守以下流程：
+
+【阶段 1：提问】
+- 用户第一次说目标时，你先**问 2-4 个关键问题**，一次不要超过 4 个。
+- 问题要尖锐、具体，目的是逼用户想清楚：时间窗口？可量化吗？为什么做不到？触发场景是什么？以前失败在哪？
+- 语气像一个不废话的私教，不要客套不要鼓励。
+- 问完问题后结尾加一行：（回答后我会继续追问或直接出方案）
+
+【阶段 2：追问或收敛】
+- 用户回答后，如果还不够清楚，再问 1-2 个关键问题。
+- 最多追问 2 轮，然后必须进入阶段 3。
+
+【阶段 3：出方案】
+- 当你觉得信息足够时，**必须输出一段简短总结 + 一个严格 JSON 代码块**。
+- 总结用人话写：你打算怎么拆、为什么这样拆。
+- JSON 必须包在三个反引号 json 代码块里，结构如下：
+
+{
+  "summary": "一句话总结这个计划",
+  "todos": [
+    {"name": "要做的事名称", "detail": "具体怎么做、频率、时间窗口"}
+  ],
+  "donts": [
+    {
+      "name": "不能做的事名称",
+      "condition": "摄像头第一视角如何判断我正在做这件事（供 VLM 判断的具体画面描述）",
+      "suggested_punishments": ["vibrate","bark","wecom"]
+    }
+  ]
+}
+
+规则：
+- todos = 用户**应该做**的正向任务（只是行动清单，不触发惩罚）
+- donts = 用户**不能做**的事，摄像头看到会触发惩罚
+- suggested_punishments 从这些 ID 里挑：vibrate, buzzer, led, bark, email, wecom, sms, social, deduct, donate, lock, release
+- donts 的 condition 必须是"摄像头能看见的具体画面描述"，不能抽象。❌"我在偷懒" ✅"画面中出现短视频 App 界面或我正躺在床上刷手机"
+- todos 和 donts 至少各 1 条
+- 阶段 1/2 绝对不要输出 JSON，只在阶段 3 输出`;
+
+function renderPlanChat() {
+  const box = document.getElementById('plan-chat');
+  box.innerHTML = '';
+  if (!state.planHistory || state.planHistory.length === 0) {
+    box.innerHTML = '<div class="text-center text-gray-400 mt-8"><div class="text-4xl mb-2">🎯</div>先说一句你想达成什么<div class="text-xs mt-1">例："我要戒烟" / "我要每天学习 4 小时"</div></div>';
+    return;
+  }
+  state.planHistory.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start');
+    const displayText = m.role === 'assistant'
+      ? m.content.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim()
+      : m.content;
+    if (!displayText && m.role === 'assistant') return;
+    div.innerHTML = `<div class="max-w-[85%] px-4 py-2 rounded-2xl ${m.role==='user'?'bubble-user':'bubble-ai'} whitespace-pre-wrap">${escapeHtml(displayText)}</div>`;
+    box.appendChild(div);
+  });
+}
+
+async function sendPlan() {
+  const input = document.getElementById('plan-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!state.planHistory) state.planHistory = [];
+  state.planHistory.push({ role: 'user', content: text });
+  input.value = '';
+  renderPlanChat();
+
+  state.planHistory.push({ role: 'assistant', content: '思考中...' });
+  renderPlanChat();
 
   try {
-    const reply = await callClaude([{ role: 'user', content: goal }], sys);
-    const json = reply.match(/\[[\s\S]*\]/)[0];
-    const plans = JSON.parse(json);
-    result.innerHTML = '';
-    plans.forEach((p, i) => {
-      const card = document.createElement('div');
-      card.className = 'border rounded-xl p-3 bg-white';
-      card.innerHTML = `
-        <div class="font-semibold">${escapeHtml(p.name)}</div>
-        <div class="text-sm text-gray-500 mt-1">${escapeHtml(p.condition)}</div>
-        <div class="text-xs text-gray-400 mt-1">类型：${p.type === 'instant' ? '即时违规' : '任务窗口'}</div>
-        <div class="text-xs text-gray-400 mt-1">建议惩罚：${(p.suggested_punishments||[]).map(id=>{
-          const x = PUNISHMENTS.find(p=>p.id===id); return x?x.icon+x.name:id;
-        }).join('、')}</div>
-        <button class="mt-2 w-full bg-orange-500 text-white py-2 rounded-lg text-sm" onclick='adoptPlan(${JSON.stringify(p).replace(/'/g,"\\'")})'>采纳为规则</button>`;
-      result.appendChild(card);
-    });
+    const msgs = state.planHistory
+      .filter(m => m.content !== '思考中...')
+      .map(m => ({ role: m.role, content: m.content }));
+    const reply = await callClaude(msgs, PLAN_SYSTEM);
+    state.planHistory.pop();
+    state.planHistory.push({ role: 'assistant', content: reply });
+    localStorage.setItem('planHistory', JSON.stringify(state.planHistory));
+    renderPlanChat();
+
+    // 尝试从回复里提取 JSON 方案
+    const match = reply.match(/```json\s*([\s\S]*?)```/) || reply.match(/(\{[\s\S]*"donts"[\s\S]*\})/);
+    if (match) {
+      try {
+        const plan = JSON.parse(match[1]);
+        renderPlanResult(plan);
+      } catch(e) { console.warn('JSON parse failed', e); }
+    }
   } catch (e) {
-    result.innerHTML = `<div class="text-red-500 text-sm">❌ ${e.message}</div>`;
+    state.planHistory.pop();
+    state.planHistory.push({ role: 'assistant', content: '❌ 出错了：' + e.message });
+    renderPlanChat();
   }
 }
 
-function adoptPlan(plan) {
-  state.rules.push({
-    id: Date.now(),
-    name: plan.name,
-    condition: plan.condition,
-    type: plan.type,
-    punishments: plan.suggested_punishments || [],
-    enabled: true,
+function renderPlanResult(plan) {
+  const result = document.getElementById('plan-result');
+  let html = '';
+  if (plan.summary) {
+    html += `<div class="p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm mt-2"><b>📌 ${escapeHtml(plan.summary)}</b></div>`;
+  }
+  if (plan.todos && plan.todos.length) {
+    html += `<div class="mt-3"><div class="font-bold text-green-700 mb-2">✅ 要做的事（${plan.todos.length}）</div>`;
+    plan.todos.forEach(t => {
+      html += `<div class="border border-green-200 bg-green-50 rounded-xl p-3 mb-2">
+        <div class="font-semibold">${escapeHtml(t.name)}</div>
+        <div class="text-sm text-gray-600 mt-1">${escapeHtml(t.detail || '')}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  if (plan.donts && plan.donts.length) {
+    html += `<div class="mt-3"><div class="font-bold text-red-700 mb-2">🚫 不能做的事（${plan.donts.length}）<span class="text-xs text-gray-500 font-normal ml-1">触发即罚</span></div>`;
+    plan.donts.forEach(d => {
+      const ps = (d.suggested_punishments || []).map(id => {
+        const p = PUNISHMENTS.find(x => x.id === id);
+        return p ? `<span class="inline-block bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs mr-1 mb-1">${p.icon}${p.name}</span>` : '';
+      }).join('');
+      html += `<div class="border border-red-200 bg-red-50 rounded-xl p-3 mb-2">
+        <div class="font-semibold">${escapeHtml(d.name)}</div>
+        <div class="text-sm text-gray-600 mt-1">识别条件：${escapeHtml(d.condition || '')}</div>
+        <div class="mt-2">${ps}</div>
+      </div>`;
+    });
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(plan.donts))));
+    html += `<button onclick='adoptAllDonts("${encoded}")' class="w-full mt-2 bg-orange-500 text-white py-3 rounded-xl font-medium">一键采纳为规则（${plan.donts.length} 条）</button>`;
+    html += '</div>';
+  }
+  result.innerHTML = html;
+}
+
+function adoptAllDonts(encoded) {
+  const donts = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+  donts.forEach(d => {
+    state.rules.push({
+      id: Date.now() + Math.random(),
+      name: d.name,
+      condition: d.condition,
+      type: 'instant',
+      punishments: d.suggested_punishments || ['vibrate'],
+      enabled: true,
+    });
   });
-  localStorage.setItem('rules', JSON.stringify(state.rules));
-  alert('✅ 已添加到规则');
+  saveRules();
+  alert(`✅ 已添加 ${donts.length} 条规则，去"规则"页查看或调整惩罚`);
+}
+
+function resetPlan() {
+  if (!confirm('清空当前规划对话？')) return;
+  state.planHistory = [];
+  localStorage.removeItem('planHistory');
+  document.getElementById('plan-result').innerHTML = '';
+  renderPlanChat();
 }
 
 // ============== 3. 规则 ==============
