@@ -582,33 +582,99 @@ function closeGamePicker() {
 }
 
 function createGame(type) {
-  const t = GAME_TYPES[type];
-  const name = prompt(`给"${t.name}"起个名`, t.name);
-  if (!name) return;
-  const cfg = t.defaults();
-  const now = Date.now();
+  openGameForm(type);
+}
 
-  if (type === 'pool') {
-    const stake = parseInt(prompt('每人押多少元？', cfg.stake) || cfg.stake);
-    const days = parseInt(prompt('多少天后结算？', cfg.days) || cfg.days);
-    cfg.stake = stake; cfg.days = days;
+const FORM_FIELDS = {
+  pool: [
+    { key: 'name',  label: '游戏名',     type: 'text',   placeholder: '本周减肥赌局', required: true },
+    { key: 'stake', label: '每人押注（元）', type: 'number', value: 10 },
+    { key: 'days',  label: '持续天数',   type: 'number', value: 7 },
+  ],
+  checkin: [
+    { key: 'name', label: '游戏名',   type: 'text',   placeholder: '早睡接力',    required: true },
+    { key: 'days', label: '目标天数', type: 'number', value: 30 },
+  ],
+  contract: [
+    { key: 'name',    label: '契约标题', type: 'text',     placeholder: '30 天戒烟', required: true },
+    { key: 'text',    label: '我承诺',   type: 'textarea', placeholder: '30 天内不抽一根烟', required: true },
+    { key: 'penalty', label: '违约代价', type: 'textarea', placeholder: '给见证人转 500 元', required: true },
+    { key: 'days',    label: '承诺周期（天）', type: 'number', value: 30 },
+  ],
+  duel: [
+    { key: 'name', label: '对战名', type: 'text',   placeholder: '本周自律 PK',  required: true },
+    { key: 'days', label: 'PK 天数', type: 'number', value: 7 },
+  ],
+  ruleset: [
+    { key: 'name', label: '规则标题', type: 'text',     placeholder: '深夜禁手机',         required: true },
+    { key: 'rule', label: '规则内容', type: 'textarea', placeholder: '晚上 11 点后不许刷手机', required: true },
+    { key: 'days', label: '锁定天数', type: 'number',   value: 7 },
+  ],
+};
+
+function openGameForm(type) {
+  const t = GAME_TYPES[type];
+  const fields = FORM_FIELDS[type];
+  const html = `
+    <div id="game-form" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onclick="if(event.target.id==='game-form')closeGameForm()">
+      <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b sticky top-0 bg-white flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="text-3xl">${t.icon}</div>
+            <div>
+              <div class="font-bold">${t.name}</div>
+              <div class="text-xs text-gray-500">${t.desc}</div>
+            </div>
+          </div>
+          <button onclick="closeGameForm()" class="text-gray-400 text-2xl leading-none">×</button>
+        </div>
+        <div class="p-4 space-y-3">
+          ${fields.map(f => `
+            <div>
+              <label class="text-xs text-gray-600">${f.label}${f.required ? ' <span class="text-red-500">*</span>' : ''}</label>
+              ${f.type === 'textarea'
+                ? `<textarea data-key="${f.key}" rows="2" placeholder="${f.placeholder || ''}" class="w-full border rounded-lg p-2 mt-1 text-sm focus:border-orange-400 outline-none"></textarea>`
+                : `<input data-key="${f.key}" type="${f.type}" placeholder="${f.placeholder || ''}" value="${f.value != null ? f.value : ''}" class="w-full border rounded-lg p-2 mt-1 text-sm focus:border-orange-400 outline-none">`
+              }
+            </div>
+          `).join('')}
+        </div>
+        <div class="p-4 border-t sticky bottom-0 bg-white flex gap-2">
+          <button onclick="closeGameForm()" class="flex-1 py-2.5 border rounded-lg text-sm">取消</button>
+          <button onclick="submitGameForm('${type}')" class="flex-1 py-2.5 bg-orange-500 text-white rounded-lg text-sm font-semibold">创建并邀请</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstElementChild);
+}
+
+function closeGameForm() {
+  const el = document.getElementById('game-form');
+  if (el) el.remove();
+}
+
+function submitGameForm(type) {
+  const fields = FORM_FIELDS[type];
+  const cfg = {};
+  let name = '';
+  for (const f of fields) {
+    const el = document.querySelector(`#game-form [data-key="${f.key}"]`);
+    let val = el.value.trim();
+    if (f.required && !val) { el.focus(); el.classList.add('border-red-500'); return; }
+    if (f.type === 'number') val = parseInt(val) || f.value || 0;
+    if (f.key === 'name') name = val;
+    else cfg[f.key] = val;
   }
-  if (type === 'checkin') {
-    cfg.days = parseInt(prompt('目标多少天？', cfg.days) || cfg.days);
-  }
-  if (type === 'contract') {
-    cfg.text = prompt('你承诺什么？（例：30 天不抽烟）');
-    if (!cfg.text) return;
-    cfg.penalty = prompt('违约代价？', cfg.penalty) || cfg.penalty;
-    cfg.days = parseInt(prompt('承诺周期（天）', cfg.days) || cfg.days);
-  }
-  if (type === 'duel') {
-    cfg.days = parseInt(prompt('PK 多少天？', cfg.days) || cfg.days);
-  }
-  if (type === 'ruleset') {
-    cfg.rule = prompt('规则内容', cfg.rule) || cfg.rule;
-    cfg.days = parseInt(prompt('锁定多少天？', cfg.days) || cfg.days);
-  }
+  closeGameForm();
+  finalizeGame(type, name, cfg);
+}
+
+function finalizeGame(type, name, cfg) {
+  const t = GAME_TYPES[type];
+  const now = Date.now();
 
   const game = {
     id: 'G' + Math.random().toString(36).slice(2, 9).toUpperCase(),
