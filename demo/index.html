@@ -182,6 +182,15 @@ const state = {
   planHistory: JSON.parse(localStorage.getItem('planHistory') || '[]'),
   events: JSON.parse(localStorage.getItem('events') || '[]'),
   friends: JSON.parse(localStorage.getItem('friends') || '[]'),
+  buddy: JSON.parse(localStorage.getItem('buddy') || 'null'),
+  pool: JSON.parse(localStorage.getItem('pool') || '{"stake":0,"startTs":0,"endTs":0,"members":[]}'),
+  checkin: JSON.parse(localStorage.getItem('checkin') || '{"chain":0,"lastDay":"","chainMembers":[]}'),
+  pending: JSON.parse(localStorage.getItem('pending') || '[]'),
+  incoming: JSON.parse(localStorage.getItem('incoming') || '[]'),
+  mercyCards: parseInt(localStorage.getItem('mercyCards') || '0'),
+  contract: JSON.parse(localStorage.getItem('contract') || 'null'),
+  buddyRules: JSON.parse(localStorage.getItem('buddyRules') || '[]'),
+  feed: JSON.parse(localStorage.getItem('feed') || '[]'),
   myId: localStorage.getItem('myId') || '',
   myName: localStorage.getItem('myName') || '',
   editingRule: null,
@@ -315,15 +324,10 @@ function clearEvents() {
   renderStats();
 }
 
-// ============== 好友 ==============
-function renderFriends() {
-  const box = document.getElementById('friends-content');
-  if (!box) return;
-  const myName = state.myName || '我';
+// ============== 好友 / 游戏化 ==============
+function myStreak() {
   const todayStart = new Date().setHours(0, 0, 0, 0);
-  const myTodayCount = (state.events || []).filter(e => e.ts >= todayStart).length;
-
-  // 连续自律天数（同 renderStats）
+  const todayCount = (state.events || []).filter(e => e.ts >= todayStart).length;
   let streak = 0;
   for (let i = 1; i <= 365; i++) {
     const dayStart = todayStart - i * 86400000;
@@ -331,60 +335,465 @@ function renderFriends() {
     if ((state.events || []).some(e => e.ts >= dayStart && e.ts < dayEnd)) break;
     streak++;
   }
-  if (myTodayCount === 0) streak++;
+  if (todayCount === 0) streak++;
+  return { streak, todayCount };
+}
 
-  // 排行榜：自己 + 好友
+function renderFriends() {
+  const box = document.getElementById('friends-content');
+  if (!box) return;
+  const myName = state.myName || '我';
+  const { streak, todayCount } = myStreak();
+
+  // 清理过期的待裁决（超过 10 分钟自动执行）
+  const now = Date.now();
+  (state.pending || []).forEach(p => {
+    if (p.status === 'waiting' && now > p.deadline) {
+      p.status = 'expired';
+      state.feed.unshift({ ts: now, actor: 'AI', type: 'auto', text: `${p.rule_name} 超时未裁决，自动执行` });
+    }
+  });
+  localStorage.setItem('pending', JSON.stringify(state.pending));
+
+  // 排行榜
   const board = [
-    { name: myName + '（我）', id: state.myId, today: myTodayCount, streak, me: true },
+    { name: myName + '（我）', id: state.myId, today: todayCount, streak, me: true },
     ...(state.friends || []).map(f => ({ name: f.name, id: f.id, today: f.today || 0, streak: f.streak || 0, me: false })),
   ];
+  if (state.buddy) {
+    if (!board.find(b => b.id === state.buddy.id)) {
+      board.push({ name: state.buddy.name + ' 🤝', id: state.buddy.id, today: state.buddy.today || 0, streak: state.buddy.streak || 0, me: false });
+    }
+  }
   board.sort((a, b) => b.streak - a.streak || a.today - b.today);
 
-  let html = `
+  // 打卡状态
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const checkedToday = state.checkin.lastDay === todayKey;
+
+  // 奖池信息
+  const pool = state.pool || { stake: 0 };
+  const poolActive = pool.stake > 0 && pool.endTs > now;
+  const poolDaysLeft = poolActive ? Math.ceil((pool.endTs - now) / 86400000) : 0;
+
+  let html = '';
+
+  // ========= 1. 身份卡片 =========
+  html += `
     <div class="bg-gradient-to-br from-orange-400 to-red-500 rounded-2xl p-4 text-white mb-4">
-      <div class="text-xs opacity-80">我的监督码</div>
-      <div class="text-2xl font-bold tracking-wider">${state.myId}</div>
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-xs opacity-80">${escapeHtml(myName)} · ${state.myId}</div>
+          <div class="text-2xl font-bold mt-1">🔥 ${streak} 天自律</div>
+          <div class="text-xs opacity-90 mt-1">今日触发 ${todayCount} 次 · 免罚卡 ${state.mercyCards} 张</div>
+        </div>
+        <div class="text-5xl">${streak >= 7 ? '🏆' : streak >= 3 ? '⭐' : '💪'}</div>
+      </div>
       <div class="flex gap-2 mt-3">
-        <button onclick="copyMyId()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">📋 复制</button>
-        <button onclick="shareMyStats()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">📤 分享战绩</button>
+        <button onclick="editMyName()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">✏️ 改名</button>
+        <button onclick="shareMyStats()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">📤 分享</button>
       </div>
     </div>
+  `;
 
-    <div class="bg-white border rounded-xl p-3 mb-3">
-      <div class="text-sm font-semibold mb-2">设置昵称</div>
-      <input id="my-name-input" value="${escapeHtml(state.myName || '')}" placeholder="给自己起个名字" class="w-full border rounded-lg p-2 text-sm" onblur="saveMyName(this.value)">
-    </div>
+  // ========= 2. 搭子（结对监督） =========
+  if (!state.buddy) {
+    html += `
+      <div class="bg-white border rounded-xl p-3 mb-3">
+        <div class="text-sm font-semibold mb-1">🤝 绑定自律搭子</div>
+        <div class="text-xs text-gray-500 mb-2">你和搭子互相监督。TA 犯规时你能决定是否执行惩罚，反之亦然。</div>
+        <div class="flex gap-2">
+          <input id="buddy-id-input" placeholder="搭子的 ID（例：UA3K7X）" class="flex-1 border rounded-lg p-2 text-sm uppercase">
+          <button onclick="bindBuddy()" class="bg-orange-500 text-white px-4 rounded-lg text-sm">绑定</button>
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="bg-white border-2 border-orange-300 rounded-xl p-3 mb-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-gray-400">我的搭子 🤝</div>
+            <div class="text-lg font-bold">${escapeHtml(state.buddy.name)}</div>
+            <div class="text-xs text-gray-500">🔥 ${state.buddy.streak || 0} 天 · 今日 ${state.buddy.today || 0} 次</div>
+          </div>
+          <button onclick="unbindBuddy()" class="text-xs text-gray-400">解绑</button>
+        </div>
+      </div>
+    `;
+  }
 
-    <div class="bg-white border rounded-xl p-3 mb-3">
-      <div class="text-sm font-semibold mb-2">➕ 添加监督对象</div>
+  // ========= 3. 待裁决惩罚（惩罚权下放） =========
+  const waitingPending = (state.pending || []).filter(p => p.status === 'waiting');
+  if (waitingPending.length > 0) {
+    html += `
+      <div class="bg-yellow-50 border border-yellow-300 rounded-xl p-3 mb-3">
+        <div class="text-sm font-semibold mb-2">⏳ 你的待裁决（等搭子决定）</div>
+        ${waitingPending.map(p => {
+          const mins = Math.max(0, Math.ceil((p.deadline - now) / 60000));
+          return `<div class="bg-white rounded-lg p-2 mb-2 text-sm">
+            <div class="font-semibold">${escapeHtml(p.rule_name)}</div>
+            <div class="text-xs text-gray-500">${escapeHtml(p.reason)}</div>
+            <div class="text-xs text-yellow-700 mt-1">⏰ ${mins} 分钟后自动执行</div>
+          </div>`;
+        }).join('')}
+        <div class="text-xs text-gray-500">💡 把这条分享给搭子，让 TA 决定要不要执行</div>
+      </div>
+    `;
+  }
+
+  // 收到的（搭子的待裁决，我要决定）
+  const incomingWaiting = (state.incoming || []).filter(p => p.status === 'waiting');
+  if (incomingWaiting.length > 0) {
+    html += `
+      <div class="bg-red-50 border border-red-300 rounded-xl p-3 mb-3">
+        <div class="text-sm font-semibold mb-2">⚖️ 搭子违规了，你来决定</div>
+        ${incomingWaiting.map(p => `
+          <div class="bg-white rounded-lg p-2 mb-2">
+            <div class="font-semibold text-sm">${escapeHtml(p.from || '搭子')} 触发了"${escapeHtml(p.rule_name)}"</div>
+            <div class="text-xs text-gray-500 mb-2">${escapeHtml(p.reason)}</div>
+            <div class="flex gap-2">
+              <button onclick="judgeIncoming('${p.id}', 'approved')" class="flex-1 bg-red-500 text-white py-1 rounded text-xs">⚡ 执行惩罚</button>
+              <button onclick="judgeIncoming('${p.id}', 'forgiven')" class="flex-1 bg-gray-200 py-1 rounded text-xs">😇 算了饶 TA</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  // ========= 4. 奖池 =========
+  html += `<div class="bg-white border rounded-xl p-3 mb-3">`;
+  if (!poolActive) {
+    html += `
+      <div class="text-sm font-semibold mb-2">💰 创建本周奖池</div>
+      <div class="text-xs text-gray-500 mb-2">本周结束，触发次数最少的人拿走全部奖池</div>
+      <div class="flex gap-2 items-center">
+        <span class="text-xs">每人押</span>
+        <input id="pool-stake" type="number" value="10" class="w-16 border rounded p-1 text-sm">
+        <span class="text-xs">元</span>
+        <button onclick="createPool()" class="ml-auto bg-orange-500 text-white px-3 py-1 rounded text-sm">开局</button>
+      </div>
+    `;
+  } else {
+    const total = (pool.members || []).reduce((s, m) => s + (m.stake || 0), 0);
+    html += `
+      <div class="flex items-center justify-between mb-2">
+        <div>
+          <div class="text-sm font-semibold">💰 本周奖池</div>
+          <div class="text-xs text-gray-500">还剩 ${poolDaysLeft} 天结算</div>
+        </div>
+        <div class="text-right">
+          <div class="text-2xl font-bold text-orange-600">¥${total}</div>
+          <div class="text-xs text-gray-400">${(pool.members || []).length} 人</div>
+        </div>
+      </div>
+      <div class="text-xs text-gray-500 mb-2">规则：触发次数最少者独得</div>
       <div class="flex gap-2">
-        <input id="friend-id-input" placeholder="好友的监督码" class="flex-1 border rounded-lg p-2 text-sm">
-        <button onclick="addFriend()" class="bg-orange-500 text-white px-4 rounded-lg text-sm">添加</button>
+        <button onclick="joinPool()" class="flex-1 bg-gray-100 py-1 rounded text-xs">加入（押 ¥${pool.stake}）</button>
+        <button onclick="settlePool()" class="flex-1 bg-red-500 text-white py-1 rounded text-xs">手动结算</button>
       </div>
-      <div class="text-xs text-gray-400 mt-2">💡 让好友把他的战绩分享给你，粘贴到下面可以更新</div>
-      <textarea id="friend-import" rows="2" placeholder="粘贴好友分享的战绩文本..." class="w-full border rounded-lg p-2 text-xs mt-2"></textarea>
-      <button onclick="importFriendStats()" class="w-full mt-2 bg-gray-800 text-white py-2 rounded-lg text-sm">导入好友战绩</button>
-    </div>
+    `;
+  }
+  html += `</div>`;
 
-    <div class="bg-white border rounded-xl p-3">
+  // ========= 5. 每日打卡 / 连环断链 =========
+  html += `
+    <div class="bg-white border rounded-xl p-3 mb-3">
+      <div class="flex items-center justify-between mb-2">
+        <div>
+          <div class="text-sm font-semibold">📅 每日打卡</div>
+          <div class="text-xs text-gray-500">连环 ${state.checkin.chain} 天${state.checkin.chainMembers.length > 0 ? ' · ' + state.checkin.chainMembers.length + ' 人同行' : ''}</div>
+        </div>
+        ${checkedToday
+          ? `<div class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs">✅ 今日已打卡</div>`
+          : `<button onclick="checkinToday()" class="bg-orange-500 text-white px-3 py-1 rounded-lg text-sm">打卡</button>`}
+      </div>
+      ${state.checkin.chain >= 3 ? `<div class="text-xs text-yellow-700">⚠️ 断一天全组清零，小心</div>` : ''}
+    </div>
+  `;
+
+  // ========= 6. 承诺书 =========
+  if (!state.contract) {
+    html += `
+      <div class="bg-white border rounded-xl p-3 mb-3">
+        <div class="text-sm font-semibold mb-1">📜 立一份承诺书</div>
+        <div class="text-xs text-gray-500 mb-2">公开承诺一个目标，违约自动触发约定的代价</div>
+        <button onclick="newContract()" class="w-full bg-gray-800 text-white py-2 rounded-lg text-sm">立字据</button>
+      </div>
+    `;
+  } else {
+    const days = Math.max(0, Math.ceil((state.contract.endTs - now) / 86400000));
+    html += `
+      <div class="bg-gradient-to-br from-gray-800 to-gray-900 text-white rounded-xl p-4 mb-3">
+        <div class="text-xs opacity-70">📜 本人承诺</div>
+        <div class="text-base font-bold mt-1">${escapeHtml(state.contract.text)}</div>
+        <div class="text-xs opacity-80 mt-2">见证人：${escapeHtml(state.contract.witness || '无')}</div>
+        <div class="text-xs opacity-80">违约代价：${escapeHtml(state.contract.penalty || '无')}</div>
+        <div class="text-xs opacity-70 mt-2">还剩 ${days} 天 · ${new Date(state.contract.startTs).toLocaleDateString()} 起</div>
+        <button onclick="breakContract()" class="mt-2 text-xs opacity-60">我承认违约</button>
+      </div>
+    `;
+  }
+
+  // ========= 7. 搭子立规矩 =========
+  if (state.buddy) {
+    html += `
+      <div class="bg-white border rounded-xl p-3 mb-3">
+        <div class="text-sm font-semibold mb-1">🧷 让搭子给你立规矩</div>
+        <div class="text-xs text-gray-500 mb-2">搭子写一条规则，你同意后进入"规则"Tab，一周内不能删</div>
+        <div class="flex gap-2">
+          <input id="buddy-rule-input" placeholder="例：晚上 11 点后不许刷手机" class="flex-1 border rounded-lg p-2 text-sm">
+          <button onclick="proposeBuddyRule()" class="bg-orange-500 text-white px-3 rounded-lg text-sm">提议</button>
+        </div>
+        ${(state.buddyRules || []).length > 0 ? `<div class="mt-2 space-y-1">
+          ${state.buddyRules.map((r, i) => `<div class="text-xs bg-gray-50 rounded p-2 flex justify-between">
+            <span>📌 ${escapeHtml(r.text)}</span>
+            <button onclick="acceptBuddyRule(${i})" class="text-orange-500">采纳</button>
+          </div>`).join('')}
+        </div>` : ''}
+      </div>
+    `;
+  }
+
+  // ========= 8. 战绩 Feed =========
+  const recentFeed = (state.feed || []).slice(0, 10);
+  if (recentFeed.length > 0) {
+    html += `<div class="bg-white border rounded-xl p-3 mb-3">
+      <div class="text-sm font-semibold mb-2">📣 动态</div>
+      ${recentFeed.map(f => `<div class="text-xs py-1 border-b last:border-0">
+        <span class="text-gray-400">${new Date(f.ts).toLocaleTimeString().slice(0,5)}</span>
+        <span class="ml-2"><b>${escapeHtml(f.actor)}</b> ${escapeHtml(f.text)}</span>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  // ========= 9. 排行榜 =========
+  html += `
+    <div class="bg-white border rounded-xl p-3 mb-3">
       <div class="text-sm font-semibold mb-2">🏆 排行榜</div>
       ${board.map((b, i) => `
-        <div class="flex items-center gap-3 py-2 border-b last:border-0 ${b.me ? 'bg-orange-50 -mx-3 px-3 rounded' : ''}">
-          <div class="text-lg font-bold text-gray-400 w-6">${i + 1}</div>
+        <div class="flex items-center gap-3 py-2 border-b last:border-0 ${b.me ? 'bg-orange-50 -mx-3 px-3' : ''}">
+          <div class="text-lg font-bold text-gray-400 w-6">${i+1}</div>
           <div class="flex-1">
             <div class="text-sm font-semibold">${escapeHtml(b.name)}</div>
             <div class="text-xs text-gray-400">${b.id}</div>
           </div>
-          <div class="text-right">
-            <div class="text-xs text-green-600">🔥 ${b.streak} 天</div>
-            <div class="text-xs text-red-500">今日 ${b.today} 次</div>
+          <div class="text-right text-xs">
+            <div class="text-green-600">🔥 ${b.streak}</div>
+            <div class="text-red-500">今日 ${b.today}</div>
           </div>
-          ${!b.me ? `<button onclick="removeFriend('${b.id}')" class="text-gray-300 text-xs">✕</button>` : ''}
         </div>
       `).join('')}
     </div>
   `;
+
+  // ========= 10. 数据同步（手动分享文本） =========
+  html += `
+    <div class="bg-white border rounded-xl p-3 mb-20">
+      <div class="text-sm font-semibold mb-1">🔄 同步（粘贴好友分享）</div>
+      <textarea id="friend-import" rows="2" placeholder="粘贴好友分享的战绩文本..." class="w-full border rounded-lg p-2 text-xs"></textarea>
+      <button onclick="importFriendStats()" class="w-full mt-2 bg-gray-800 text-white py-2 rounded-lg text-sm">导入</button>
+      <div class="text-xs text-gray-400 mt-1">💡 真正的云同步需要 server 部署后启用</div>
+    </div>
+  `;
+
   box.innerHTML = html;
+}
+
+// ---- 身份 ----
+function editMyName() {
+  const name = prompt('输入新昵称', state.myName || '');
+  if (name !== null) {
+    state.myName = name.trim();
+    localStorage.setItem('myName', state.myName);
+    renderFriends();
+  }
+}
+
+function shareMyStats() {
+  const { streak, todayCount } = myStreak();
+  const payload = { id: state.myId, name: state.myName || '匿名', today: todayCount, streak, ts: Date.now() };
+  const text = `【AI 自律战报】\n${payload.name}（${payload.id}）\n🔥 连续自律 ${streak} 天\n今日触发 ${todayCount} 次\n---\n${btoa(unescape(encodeURIComponent(JSON.stringify(payload))))}`;
+  if (navigator.share) {
+    navigator.share({ text }).catch(() => navigator.clipboard.writeText(text).then(() => alert('已复制')));
+  } else {
+    navigator.clipboard.writeText(text).then(() => alert('已复制到剪贴板，粘贴给好友'));
+  }
+}
+
+// ---- 搭子 ----
+function bindBuddy() {
+  const id = document.getElementById('buddy-id-input').value.trim().toUpperCase();
+  if (!id) return alert('填入搭子的 ID');
+  if (id === state.myId) return alert('不能绑自己');
+  state.buddy = { id, name: id, streak: 0, today: 0, boundAt: Date.now() };
+  localStorage.setItem('buddy', JSON.stringify(state.buddy));
+  renderFriends();
+}
+function unbindBuddy() {
+  if (!confirm('确定解绑搭子？')) return;
+  state.buddy = null;
+  localStorage.removeItem('buddy');
+  renderFriends();
+}
+
+// ---- 裁决 ----
+function judgeIncoming(id, decision) {
+  const p = (state.incoming || []).find(x => x.id === id);
+  if (!p) return;
+  p.status = decision;
+  const verb = decision === 'approved' ? '执行了惩罚 ⚡' : '饶了 TA 一次 😇';
+  state.feed.unshift({ ts: Date.now(), actor: state.myName || '我', type: 'judge', text: `对搭子"${p.rule_name}"${verb}` });
+  if (decision === 'forgiven') {
+    state.mercyCards++;
+    localStorage.setItem('mercyCards', state.mercyCards);
+  }
+  localStorage.setItem('incoming', JSON.stringify(state.incoming));
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  renderFriends();
+}
+
+// ---- 奖池 ----
+function createPool() {
+  const stake = parseInt(document.getElementById('pool-stake').value || '10');
+  if (stake <= 0) return alert('押金必须大于 0');
+  const now = Date.now();
+  state.pool = {
+    stake,
+    startTs: now,
+    endTs: now + 7 * 86400000,
+    members: [{ id: state.myId, name: state.myName || '我', stake }],
+  };
+  localStorage.setItem('pool', JSON.stringify(state.pool));
+  state.feed.unshift({ ts: now, actor: state.myName || '我', type: 'pool', text: `开了本周奖池，押 ¥${stake}` });
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  renderFriends();
+}
+function joinPool() {
+  if (!state.pool || !state.pool.stake) return;
+  if (state.pool.members.find(m => m.id === state.myId)) return alert('你已经在奖池里了');
+  state.pool.members.push({ id: state.myId, name: state.myName || '我', stake: state.pool.stake });
+  localStorage.setItem('pool', JSON.stringify(state.pool));
+  renderFriends();
+}
+function settlePool() {
+  if (!confirm('结算奖池？会根据触发次数选出赢家')) return;
+  const total = (state.pool.members || []).reduce((s, m) => s + (m.stake || 0), 0);
+  // 本地只知道自己的数据，赢家就判自己或让用户手动指定
+  const winner = prompt(`奖池 ¥${total}，赢家是谁？`, state.myName || '我') || '未知';
+  state.feed.unshift({ ts: Date.now(), actor: '系统', type: 'settle', text: `奖池结算：${winner} 赢得 ¥${total}` });
+  state.pool = { stake: 0, startTs: 0, endTs: 0, members: [] };
+  localStorage.setItem('pool', JSON.stringify(state.pool));
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  renderFriends();
+}
+
+// ---- 打卡 ----
+function checkinToday() {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const yesterdayKey = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (state.checkin.lastDay === todayKey) return;
+  if (state.checkin.lastDay === yesterdayKey || !state.checkin.lastDay) {
+    state.checkin.chain++;
+  } else {
+    state.checkin.chain = 1;
+  }
+  state.checkin.lastDay = todayKey;
+  localStorage.setItem('checkin', JSON.stringify(state.checkin));
+  state.feed.unshift({ ts: Date.now(), actor: state.myName || '我', type: 'checkin', text: `第 ${state.checkin.chain} 天打卡` });
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  renderFriends();
+}
+
+// ---- 承诺书 ----
+function newContract() {
+  const text = prompt('你承诺做到什么？（例：30 天内不抽烟）');
+  if (!text) return;
+  const witness = prompt('见证人是谁？（搭子的名字或手机号）') || '';
+  const penalty = prompt('违约代价？（例：给见证人转 500 块）') || '';
+  const days = parseInt(prompt('承诺周期？天数', '30') || '30');
+  state.contract = {
+    text: text.trim(),
+    witness: witness.trim(),
+    penalty: penalty.trim(),
+    startTs: Date.now(),
+    endTs: Date.now() + days * 86400000,
+  };
+  localStorage.setItem('contract', JSON.stringify(state.contract));
+  state.feed.unshift({ ts: Date.now(), actor: state.myName || '我', type: 'contract', text: `立了承诺：${text}` });
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  renderFriends();
+}
+function breakContract() {
+  if (!confirm('承认违约？约定的代价将生效')) return;
+  const penalty = state.contract.penalty;
+  state.feed.unshift({ ts: Date.now(), actor: state.myName || '我', type: 'break', text: `承认违约，代价：${penalty}` });
+  state.contract = null;
+  localStorage.removeItem('contract');
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  renderFriends();
+  alert(`⚠️ 请立即执行：${penalty}`);
+}
+
+// ---- 搭子立规矩 ----
+function proposeBuddyRule() {
+  const text = document.getElementById('buddy-rule-input').value.trim();
+  if (!text) return;
+  state.buddyRules.push({ text, ts: Date.now(), from: state.buddy ? state.buddy.name : '搭子' });
+  localStorage.setItem('buddyRules', JSON.stringify(state.buddyRules));
+  document.getElementById('buddy-rule-input').value = '';
+  renderFriends();
+}
+function acceptBuddyRule(i) {
+  const br = state.buddyRules[i];
+  if (!br) return;
+  const name = prompt('给这条规则起名', br.text.slice(0, 20)) || br.text.slice(0, 20);
+  state.rules.push({
+    id: Date.now() + Math.random(),
+    name,
+    condition: br.text,
+    type: 'instant',
+    time_scope: 'always',
+    time_desc: '全天（搭子立的，一周内不可删）',
+    punishments: ['vibrate', 'bark'],
+    enabled: true,
+    locked_until: Date.now() + 7 * 86400000,
+  });
+  saveRules();
+  state.buddyRules.splice(i, 1);
+  localStorage.setItem('buddyRules', JSON.stringify(state.buddyRules));
+  state.feed.unshift({ ts: Date.now(), actor: state.myName || '我', type: 'accept', text: `采纳搭子立的规矩：${name}` });
+  localStorage.setItem('feed', JSON.stringify(state.feed));
+  alert('✅ 已添加到规则');
+  renderFriends();
+}
+
+// ---- 同步 ----
+function importFriendStats() {
+  const text = document.getElementById('friend-import').value.trim();
+  if (!text) return;
+  const match = text.match(/([A-Za-z0-9+/=]{20,})/);
+  if (!match) return alert('没找到战绩数据');
+  try {
+    const data = JSON.parse(decodeURIComponent(escape(atob(match[1]))));
+    // 如果是搭子，更新搭子信息
+    if (state.buddy && state.buddy.id === data.id) {
+      state.buddy = { ...state.buddy, name: data.name, streak: data.streak, today: data.today };
+      localStorage.setItem('buddy', JSON.stringify(state.buddy));
+    } else {
+      // 否则加到好友列表
+      let f = state.friends.find(x => x.id === data.id);
+      if (!f) { f = { id: data.id }; state.friends.push(f); }
+      Object.assign(f, { name: data.name || data.id, today: data.today, streak: data.streak, updated: data.ts });
+      localStorage.setItem('friends', JSON.stringify(state.friends));
+    }
+    document.getElementById('friend-import').value = '';
+    alert(`✅ 已导入 ${data.name || data.id}`);
+    renderFriends();
+  } catch (e) {
+    alert('数据损坏：' + e.message);
+  }
 }
 
 function saveMyName(name) {
@@ -993,17 +1402,34 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
       // 写入战绩事件
       matched.forEach(r => {
-        state.events.push({
+        const ev = {
           ts: Date.now(),
           rule_id: r.id,
           rule_name: r.name,
           reason: json.reason || '',
           punishments: r.punishments || [],
-        });
+        };
+        state.events.push(ev);
+        // Feed（自己的 timeline）
+        state.feed.unshift({ ts: ev.ts, actor: state.myName || '我', type: 'trigger', text: `触发了"${r.name}"` });
+        // 如果有搭子，把惩罚放进"待裁决"队列，交给搭子决定
+        if (state.buddy) {
+          state.pending.push({
+            id: 'P' + Date.now() + Math.floor(Math.random()*1000),
+            ts: ev.ts,
+            rule_name: r.name,
+            reason: json.reason || '',
+            punishments: r.punishments || [],
+            status: 'waiting', // waiting | approved | forgiven | expired
+            deadline: Date.now() + 10 * 60 * 1000,
+          });
+        }
       });
-      // 只保留最近 500 条
       if (state.events.length > 500) state.events = state.events.slice(-500);
+      if (state.feed.length > 200) state.feed = state.feed.slice(0, 200);
       localStorage.setItem('events', JSON.stringify(state.events));
+      localStorage.setItem('feed', JSON.stringify(state.feed));
+      localStorage.setItem('pending', JSON.stringify(state.pending));
       renderStats();
     }
   } catch (e) {

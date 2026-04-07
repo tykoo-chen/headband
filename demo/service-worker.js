@@ -1,4 +1,4 @@
-const CACHE = 'self-discipline-v5';
+const CACHE = 'self-discipline-v6';
 const ASSETS = [
   './',
   './index.html',
