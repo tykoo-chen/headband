@@ -451,18 +451,43 @@ function renderGameCard(g) {
 
   if (g.type === 'contract') {
     const daysLeft = Math.max(0, Math.ceil((g.endTs - now) / 86400000));
+    const witnessName = (g.members || []).filter(m => m.id !== g.createdBy).map(m => escapeHtml(m.name)).join(', ') || '（待邀请）';
+    const iAmCreator = state.myId === g.createdBy;
+    const iAmWitness = !iAmCreator && (g.members || []).some(m => m.id === state.myId);
+    const handed = g.handedOver;
     body = `
       <div class="bg-gray-900 text-white rounded-lg p-3 mt-2">
         <div class="text-sm font-bold">${escapeHtml(g.config.text || '未填写')}</div>
-        <div class="text-xs opacity-70 mt-1">见证人：${(g.members || []).filter(m => m.id !== state.myId).map(m => escapeHtml(m.name)).join(', ') || '无'}</div>
-        <div class="text-xs opacity-70">违约代价：${escapeHtml(g.config.penalty)}</div>
+        <div class="text-xs opacity-70 mt-1">立约人：${escapeHtml(g.createdByName || '未知')}</div>
+        <div class="text-xs opacity-70">见证人：${witnessName}</div>
+        <div class="text-xs opacity-70">约定代价：${escapeHtml(g.config.penalty)}</div>
         <div class="text-xs opacity-70 mt-1">还剩 ${daysLeft} 天</div>
+        ${handed ? `<div class="mt-2 bg-red-600 text-white text-xs p-2 rounded">⚠️ 已违约，控制权已移交给见证人</div>` : ''}
       </div>
     `;
-    footer = `
-      <button onclick="breakGame('${g.id}')" class="flex-1 bg-gray-200 py-1.5 rounded text-xs">承认违约</button>
-      <button onclick="completeGame('${g.id}')" class="flex-1 bg-green-500 text-white py-1.5 rounded text-xs">达成</button>
-    `;
+    if (handed) {
+      // 控制权在见证人手里
+      if (iAmWitness) {
+        footer = `
+          <button onclick="executeContract('${g.id}')" class="flex-1 bg-red-500 text-white py-1.5 rounded text-xs">⚡ 执行惩罚</button>
+          <button onclick="forgiveContract('${g.id}')" class="flex-1 bg-gray-200 py-1.5 rounded text-xs">😇 饶 TA</button>
+        `;
+      } else {
+        footer = `<div class="flex-1 text-center text-xs text-gray-500 py-1.5">等待 ${witnessName} 裁决…</div>`;
+      }
+    } else {
+      // 还在进行中
+      if (iAmCreator) {
+        footer = `
+          <button onclick="breakGame('${g.id}')" class="flex-1 bg-gray-200 py-1.5 rounded text-xs">承认违约</button>
+          <button onclick="completeGame('${g.id}')" class="flex-1 bg-green-500 text-white py-1.5 rounded text-xs">达成</button>
+        `;
+      } else if (iAmWitness) {
+        footer = `<button onclick="reportBreak('${g.id}')" class="flex-1 bg-orange-500 text-white py-1.5 rounded text-xs">举报 TA 违约了</button>`;
+      } else {
+        footer = `<div class="flex-1 text-center text-xs text-gray-400 py-1.5">围观中</div>`;
+      }
+    }
   }
 
   if (g.type === 'duel') {
@@ -517,15 +542,39 @@ function renderGameCard(g) {
   `;
 }
 
-// ---- 创建游戏 ----
+// ---- 创建游戏（卡片式 picker） ----
 function openCreateGame() {
-  const types = Object.entries(GAME_TYPES).map(([k, v]) => `${v.icon} ${v.name}`).join('\n');
   const keys = Object.keys(GAME_TYPES);
-  const choice = prompt(`选择游戏类型（输入数字）：\n${keys.map((k, i) => `${i+1}. ${GAME_TYPES[k].icon} ${GAME_TYPES[k].name} — ${GAME_TYPES[k].desc}`).join('\n')}`);
-  const idx = parseInt(choice) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= keys.length) return;
-  const type = keys[idx];
-  createGame(type);
+  const html = `
+    <div id="game-picker" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onclick="if(event.target.id==='game-picker')closeGamePicker()">
+      <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-lg font-bold">选择游戏类型</div>
+          <button onclick="closeGamePicker()" class="text-gray-400 text-2xl leading-none">×</button>
+        </div>
+        <div class="space-y-2">
+          ${keys.map(k => {
+            const t = GAME_TYPES[k];
+            return `<button onclick="closeGamePicker();createGame('${k}')" class="w-full text-left bg-gray-50 hover:bg-orange-50 active:bg-orange-100 border rounded-xl p-3 flex gap-3 items-start">
+              <div class="text-3xl">${t.icon}</div>
+              <div class="flex-1">
+                <div class="font-bold text-sm">${t.name}</div>
+                <div class="text-xs text-gray-500 mt-0.5">${t.desc}</div>
+              </div>
+              <div class="text-orange-500 text-xl">›</div>
+            </button>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstElementChild);
+}
+function closeGamePicker() {
+  const el = document.getElementById('game-picker');
+  if (el) el.remove();
 }
 
 function createGame(type) {
@@ -671,9 +720,46 @@ function checkinGame(id) {
 
 function breakGame(id) {
   const g = state.games.find(x => x.id === id);
-  if (!g || !confirm(`承认违约？将执行：${g.config.penalty}`)) return;
-  feedAdd(`承认违约"${g.name}"，代价：${g.config.penalty}`);
-  alert(`⚠️ 立即执行：${g.config.penalty}`);
+  if (!g) return;
+  const witness = (g.members || []).find(m => m.id !== g.createdBy);
+  if (!witness) return alert('还没有见证人加入，先邀请一个');
+  if (!confirm(`承认违约？控制权将移交给见证人 ${witness.name}，由 TA 决定是否执行：\n${g.config.penalty}`)) return;
+  g.handedOver = true;
+  g.handedAt = Date.now();
+  saveGames();
+  feedAdd(`承认违约"${g.name}"，控制权已交给 ${witness.name}`);
+  alert(`✅ 控制权已移交给 ${witness.name}`);
+  renderFriends();
+}
+
+function reportBreak(id) {
+  const g = state.games.find(x => x.id === id);
+  if (!g) return;
+  if (!confirm(`举报立约人违约？控制权将转到你手中，由你决定是否执行约定代价。`)) return;
+  g.handedOver = true;
+  g.handedAt = Date.now();
+  saveGames();
+  feedAdd(`举报"${g.createdByName}"违约了"${g.name}"`);
+  renderFriends();
+}
+
+function executeContract(id) {
+  const g = state.games.find(x => x.id === id);
+  if (!g) return;
+  if (!confirm(`确认执行惩罚：${g.config.penalty}`)) return;
+  feedAdd(`对"${g.createdByName}"执行了契约惩罚：${g.config.penalty}`);
+  alert(`⚡ 通知 ${g.createdByName}：${g.config.penalty}`);
+  state.games = state.games.filter(x => x.id !== id);
+  saveGames();
+  renderFriends();
+}
+
+function forgiveContract(id) {
+  const g = state.games.find(x => x.id === id);
+  if (!g) return;
+  state.mercyCards++;
+  localStorage.setItem('mercyCards', state.mercyCards);
+  feedAdd(`饶了"${g.createdByName}"一次（+1 免罚卡）`);
   state.games = state.games.filter(x => x.id !== id);
   saveGames();
   renderFriends();
