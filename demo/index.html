@@ -62,24 +62,23 @@
     <div id="rules-list" class="space-y-3"></div>
   </section>
 
-  <!-- 4. 监控页（模拟硬件） -->
+  <!-- 4. 监控页（硬件） -->
   <section data-page="monitor" class="p-4 hidden">
     <h2 class="text-xl font-bold mb-2">📷 实时监控</h2>
-    <p class="text-sm text-gray-500 mb-3">硬件就绪后会自动接入。现在你可以模拟一帧来测试规则。</p>
+    <div id="board-status" class="text-xs mb-2"></div>
     <div class="bg-black aspect-video rounded-xl flex items-center justify-center text-white text-sm relative overflow-hidden">
-      <video id="cam-preview" autoplay playsinline muted class="w-full h-full object-cover hidden"></video>
-      <div id="cam-placeholder">📷 摄像头未启动</div>
+      <img id="board-frame" class="w-full h-full object-cover hidden" alt="">
+      <div id="board-placeholder" class="text-center text-xs px-4">未连接发带<br>右上角 ⚙️ 填入板子地址</div>
     </div>
     <div class="grid grid-cols-2 gap-2 mt-3">
-      <button onclick="startCamera()" class="bg-gray-200 py-2 rounded-lg">📷 开启摄像头</button>
-      <button onclick="captureAndCheck()" class="bg-orange-500 text-white py-2 rounded-lg">🔍 抽帧检测</button>
+      <button id="monitor-toggle" onclick="toggleMonitor()" class="bg-orange-500 text-white py-2 rounded-lg">▶️ 开始监控</button>
+      <button onclick="pollSceneOnce()" class="bg-gray-200 py-2 rounded-lg">🔍 立刻检测一次</button>
     </div>
-    <div class="mt-2">
-      <label class="text-sm text-gray-500">或手动模拟一段场景描述：</label>
-      <textarea id="sim-text" rows="2" placeholder="例：我正在喝啤酒、我在抽烟、我在背单词" class="w-full border rounded-lg p-2 mt-1 outline-none focus:border-orange-400"></textarea>
-      <button onclick="simulate()" class="w-full bg-gray-800 text-white py-2 rounded-lg mt-2">模拟检测</button>
+    <div class="mt-3 bg-white border rounded-lg p-3">
+      <div class="text-xs text-gray-400">👀 当前看到</div>
+      <div id="current-scene" class="text-sm mt-1 text-gray-700">—</div>
     </div>
-    <div id="monitor-log" class="mt-4 space-y-2"></div>
+    <div id="monitor-log" class="mt-3 space-y-2"></div>
 
     <!-- 战绩区（并入监控页） -->
     <div class="mt-6 pt-4 border-t">
@@ -118,7 +117,10 @@
     <h3 class="text-lg font-bold mb-3">设置</h3>
     <label class="text-sm text-gray-600">Anthropic API Key</label>
     <input id="api-key-input" type="password" placeholder="sk-ant-..." class="w-full border rounded-lg p-2 mt-1">
-    <p class="text-xs text-gray-400 mt-1">仅存在你手机本地（localStorage），不上传任何服务器</p>
+    <p class="text-xs text-gray-400 mt-1">仅存在你手机本地，用于规则匹配</p>
+    <label class="text-sm text-gray-600 mt-3 block">发带地址（板子 IP）</label>
+    <input id="board-url-input" placeholder="http://192.168.50.197:5000" class="w-full border rounded-lg p-2 mt-1">
+    <p class="text-xs text-gray-400 mt-1">板子上 server.py 跑起来后填这里</p>
     <div class="flex gap-2 mt-4">
       <button onclick="closeSettings()" class="flex-1 py-2 border rounded-lg">取消</button>
       <button onclick="saveSettings()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg">保存</button>
@@ -177,6 +179,7 @@
 // ============== 状态 ==============
 const state = {
   apiKey: localStorage.getItem('apiKey') || '',
+  boardUrl: (localStorage.getItem('boardUrl') || '').replace(/\/$/, ''),
   chatHistory: JSON.parse(localStorage.getItem('chatHistory') || '[]'),
   rules: JSON.parse(localStorage.getItem('rules') || '[]'),
   planHistory: JSON.parse(localStorage.getItem('planHistory') || '[]'),
@@ -216,7 +219,8 @@ function switchTab(name) {
   document.querySelector(`[data-tab="${name}"]`).classList.add('tab-active');
   if (name === 'rules') renderRules();
   if (name === 'plan') renderPlanChat();
-  if (name === 'monitor') renderStats();
+  if (name === 'monitor') { renderStats(); refreshBoardStatus(); }
+  else { stopFrameStream(); }
   if (name === 'friends') renderFriends();
 }
 
@@ -822,6 +826,7 @@ function shareMyStats() {
 // ============== 设置 ==============
 function openSettings() {
   document.getElementById('api-key-input').value = state.apiKey;
+  document.getElementById('board-url-input').value = state.boardUrl;
   document.getElementById('settings-modal').classList.remove('hidden');
   document.getElementById('settings-modal').classList.add('flex');
 }
@@ -831,9 +836,12 @@ function closeSettings() {
 }
 function saveSettings() {
   state.apiKey = document.getElementById('api-key-input').value.trim();
+  state.boardUrl = document.getElementById('board-url-input').value.trim().replace(/\/$/, '');
   localStorage.setItem('apiKey', state.apiKey);
+  localStorage.setItem('boardUrl', state.boardUrl);
   document.getElementById('header-sub').textContent = state.apiKey ? '✅ API 已连接' : '未连接 API';
   closeSettings();
+  if (document.querySelector('[data-page="monitor"]:not(.hidden)')) refreshBoardStatus();
 }
 
 // ============== Claude API 调用 ==============
@@ -1282,60 +1290,83 @@ function closeRuleModal() {
   document.getElementById('rule-modal').classList.remove('flex');
 }
 
-// ============== 4. 监控（模拟硬件） ==============
-let camStream = null;
-async function startCamera() {
-  try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    const v = document.getElementById('cam-preview');
-    v.srcObject = camStream;
-    v.classList.remove('hidden');
-    document.getElementById('cam-placeholder').classList.add('hidden');
-  } catch (e) {
-    alert('无法打开摄像头：' + e.message);
+// ============== 4. 监控（硬件） ==============
+let monitorTimer = null;
+let frameTimer = null;
+
+function refreshBoardStatus() {
+  const status = document.getElementById('board-status');
+  const placeholder = document.getElementById('board-placeholder');
+  const img = document.getElementById('board-frame');
+  if (!state.boardUrl) {
+    status.innerHTML = '<span class="text-gray-400">⚠️ 未配置发带地址</span>';
+    img.classList.add('hidden');
+    placeholder.classList.remove('hidden');
+    return;
   }
+  status.innerHTML = `<span class="text-gray-500">🔗 ${state.boardUrl}</span>`;
+  img.classList.remove('hidden');
+  placeholder.classList.add('hidden');
+  startFrameStream();
 }
 
-async function captureAndCheck() {
-  if (!camStream) return alert('请先开启摄像头');
-  const v = document.getElementById('cam-preview');
-  const c = document.createElement('canvas');
-  c.width = v.videoWidth; c.height = v.videoHeight;
-  c.getContext('2d').drawImage(v, 0, 0);
-  const dataUrl = c.toDataURL('image/jpeg', 0.7);
-  const base64 = dataUrl.split(',')[1];
-  await runDetection({ image: base64 });
+function startFrameStream() {
+  if (frameTimer) clearInterval(frameTimer);
+  if (!state.boardUrl) return;
+  const img = document.getElementById('board-frame');
+  const tick = () => { img.src = state.boardUrl + '/frame?t=' + Date.now(); };
+  tick();
+  frameTimer = setInterval(tick, 1000);
+}
+function stopFrameStream() {
+  if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
 }
 
-async function simulate() {
-  const text = document.getElementById('sim-text').value.trim();
-  if (!text) return;
-  await runDetection({ text });
+function toggleMonitor() {
+  if (monitorTimer) {
+    clearInterval(monitorTimer);
+    monitorTimer = null;
+    document.getElementById('monitor-toggle').textContent = '▶️ 开始监控';
+    return;
+  }
+  if (!state.boardUrl) return alert('先在 ⚙️ 设置里填板子地址');
+  if (!state.apiKey) return alert('先在 ⚙️ 设置里填 Anthropic Key');
+  document.getElementById('monitor-toggle').textContent = '⏸ 停止监控';
+  pollSceneOnce();
+  monitorTimer = setInterval(pollSceneOnce, 5000);
+}
+
+async function pollSceneOnce() {
+  if (!state.boardUrl) return alert('先填板子地址');
+  const sceneEl = document.getElementById('current-scene');
+  sceneEl.textContent = '🔍 正在读取画面...';
+  try {
+    const r = await fetch(state.boardUrl + '/scene', { cache: 'no-store' });
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    sceneEl.textContent = data.scene;
+    await runDetection({ text: data.scene });
+  } catch (e) {
+    sceneEl.innerHTML = `<span class="text-red-500">❌ ${e.message}</span>`;
+  }
 }
 
 async function runDetection(input) {
   const enabledRules = state.rules.filter(r => r.enabled && isRuleActiveNow(r));
-  if (enabledRules.length === 0) return alert('当前时间没有生效的规则');
+  if (enabledRules.length === 0) return;
   const log = document.getElementById('monitor-log');
   const entry = document.createElement('div');
   entry.className = 'border rounded-lg p-3 bg-white text-sm';
-  entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div>🔍 检测中...</div>`;
+  entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div>🔍 匹配规则中...</div>`;
   log.prepend(entry);
+  while (log.children.length > 10) log.lastChild.remove();
 
-  const sys = `你是行为审查助手。判断输入内容是否触发以下任一规则。返回严格 JSON: {"matched": ["规则ID", ...], "reason": "简短说明"}。只返回 JSON。
+  const sys = `你是行为审查助手。判断输入场景描述是否触发以下任一规则。返回严格 JSON: {"matched": ["规则ID", ...], "reason": "简短说明"}。只返回 JSON。
 规则列表：
 ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition}"`).join('\n')}`;
 
   try {
-    let messages;
-    if (input.image) {
-      messages = [{ role: 'user', content: [
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: input.image }},
-        { type: 'text', text: '请按系统指令判断这张图。' }
-      ]}];
-    } else {
-      messages = [{ role: 'user', content: '场景描述：' + input.text }];
-    }
+    const messages = [{ role: 'user', content: '场景描述：' + input.text }];
     const reply = await callClaude(messages, sys);
     const json = JSON.parse(reply.match(/\{[\s\S]*\}/)[0]);
     const matched = (json.matched || []).map(id => enabledRules.find(r => String(r.id) === String(id))).filter(Boolean);
