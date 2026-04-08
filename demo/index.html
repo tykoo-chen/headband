@@ -1359,6 +1359,7 @@ function closeRuleModal() {
 // ============== 4. 监控（硬件） ==============
 let monitorTimer = null;
 let frameTimer = null;
+let sceneIntervalId = null;
 
 function refreshBoardStatus() {
   const status = document.getElementById('board-status');
@@ -1389,9 +1390,9 @@ function stopFrameStream() {
 }
 
 function toggleMonitor() {
-  if (monitorTimer) {
-    clearInterval(monitorTimer);
-    monitorTimer = null;
+  if (monitorTimer || sceneIntervalId) {
+    if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+    if (sceneIntervalId) { clearInterval(sceneIntervalId); sceneIntervalId = null; }
     document.getElementById('monitor-toggle').textContent = '▶️ 开始监控';
     return;
   }
@@ -1399,7 +1400,9 @@ function toggleMonitor() {
   if (!state.apiKey) return alert('先在 ⚙️ 设置里填 Anthropic Key');
   document.getElementById('monitor-toggle').textContent = '⏸ 停止监控';
   pollSceneOnce();
-  monitorTimer = setInterval(pollSceneOnce, 5000);
+  if (sceneIntervalId) clearInterval(sceneIntervalId);
+  sceneIntervalId = setInterval(pollSceneOnce, 5000);
+  monitorTimer = sceneIntervalId;
 }
 
 async function pollSceneOnce() {
