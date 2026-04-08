@@ -121,6 +121,10 @@
     <label class="text-sm text-gray-600 mt-3 block">发带地址（板子 IP）</label>
     <input id="board-url-input" placeholder="http://192.168.50.197:5000" class="w-full border rounded-lg p-2 mt-1">
     <p class="text-xs text-gray-400 mt-1">板子上 server.py 跑起来后填这里</p>
+    <label class="text-sm text-gray-600 mt-3 block">收件邮箱（邮件通报惩罚用）</label>
+    <input id="alert-email-input" type="email" placeholder="you@example.com" class="w-full border rounded-lg p-2 mt-1">
+    <p class="text-xs text-gray-400 mt-1">命中 email_alert 惩罚时会往这里发通知</p>
+    <!-- TODO: SMTP 配置（发件账号/密码/服务器）待实现，目前板子端仅打印日志 -->
     <div class="flex gap-2 mt-4">
       <button onclick="closeSettings()" class="flex-1 py-2 border rounded-lg">取消</button>
       <button onclick="saveSettings()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg">保存</button>
@@ -180,6 +184,7 @@
 const state = {
   apiKey: localStorage.getItem('apiKey') || '',
   boardUrl: (localStorage.getItem('boardUrl') || '').replace(/\/$/, ''),
+  alertEmail: localStorage.getItem('alertEmail') || '',
   chatHistory: JSON.parse(localStorage.getItem('chatHistory') || '[]'),
   rules: JSON.parse(localStorage.getItem('rules') || '[]'),
   planHistory: JSON.parse(localStorage.getItem('planHistory') || '[]'),
@@ -196,19 +201,54 @@ if (!state.myId) {
   localStorage.setItem('myId', state.myId);
 }
 
+// PUNISHMENTS 动作库 —— 审计状态（2026-04-08）：
+//   vibrate/buzzer/led  [占位] 仅 UI 标签，当前板子 server.py 无对应通道，命中后只做展示
+//   bark                [需配置] 需要 Bark key，尚未实现
+//   email               [占位] 旧 id，保留做 UI 兼容，推荐使用 email_alert
+//   wecom/sms/social    [占位] 第三方 API 未接入
+//   deduct/donate       [占位] 需要支付/托管通道，未实现
+//   lock                [占位] 需要桌面端配合，浏览器无法真正锁屏
+//   release             [占位] 质押机制未落地
+//   voice_insult        [已实现] 走板子 /speak，由 Kimi 生成羞辱语 + edge-tts 通过 3.5mm 播报
+//   email_alert         [已实现+需配置] 走板子 /email，需要在设置里填收件邮箱
+// 带 action 字段的条目会在 runDetection 命中后被自动执行；其余仅做 UI 展示。
 const PUNISHMENTS = [
   { id: 'vibrate',   icon: '📳', name: '发带震动',         desc: '硬件就绪后生效',     level: '🟢' },
   { id: 'buzzer',    icon: '🔔', name: '发带蜂鸣',         desc: '公共场合社死',       level: '🟢' },
   { id: 'led',       icon: '💡', name: 'LED 闪光',         desc: '强光视觉干扰',       level: '🟢' },
-  { id: 'bark',      icon: '📱', name: '推送通知到自己',    desc: '通过 Bark / 通知',  level: '🟡' },
-  { id: 'email',     icon: '📧', name: '邮件提醒自己',     desc: '发到自己邮箱',       level: '🟡' },
-  { id: 'wecom',    icon: '👥', name: '企微/钉钉群通报',   desc: '让群里人都知道',     level: '🟠' },
-  { id: 'sms',       icon: '📨', name: '短信发给监督人',    desc: '发给指定手机号',     level: '🟠' },
-  { id: 'social',    icon: '🌐', name: '自动发微博/朋友圈', desc: '公开打卡失败',       level: '🟠' },
-  { id: 'deduct',    icon: '💰', name: '扣钱（押金）',     desc: '从托管押金里扣',     level: '🔴' },
-  { id: 'donate',    icon: '🎁', name: '强制小额捐款',     desc: '捐给慈善机构',       level: '🔴' },
-  { id: 'lock',      icon: '🔒', name: '锁定电脑/暂停视频', desc: '强制中断当前活动',   level: '🔴' },
-  { id: 'release',   icon: '⚠️', name: '释放质押文件',     desc: '不可逆，慎选',       level: '🟣' },
+  { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: '通过发带扬声器播放一段批评你的话', level: '🔴', needsConfig: false,
+    action: async ({rule, reason}) => {
+      if (!state.boardUrl) return;
+      try {
+        await fetch(state.boardUrl + '/speak', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({rule_name: rule.name, condition: rule.condition, reason}),
+        });
+      } catch(e) { console.warn('speak failed', e); }
+    }
+  },
+  { id: 'email_alert', icon: '✉️', name: '邮件通报', desc: '向指定邮箱发送违规邮件', level: '🟠', needsConfig: true,
+    action: async ({rule, reason, input}) => {
+      if (!state.alertEmail || !state.boardUrl) return;
+      try {
+        await fetch(state.boardUrl + '/email', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({to: state.alertEmail, rule_name: rule.name, reason, snapshot_text: input.text}),
+        });
+      } catch(e) { console.warn('email failed', e); }
+    }
+  },
+  { id: 'bark',      icon: '📱', name: '推送通知到自己',    desc: '通过 Bark / 通知',  level: '🟡', needsConfig: true },
+  { id: 'email',     icon: '📧', name: '邮件提醒自己',     desc: '发到自己邮箱（旧占位，推荐用 email_alert）', level: '🟡', needsConfig: true },
+  { id: 'wecom',    icon: '👥', name: '企微/钉钉群通报',   desc: '让群里人都知道',     level: '🟠', needsConfig: true },
+  { id: 'sms',       icon: '📨', name: '短信发给监督人',    desc: '发给指定手机号',     level: '🟠', needsConfig: true },
+  { id: 'social',    icon: '🌐', name: '自动发微博/朋友圈', desc: '公开打卡失败',       level: '🟠', needsConfig: true },
+  { id: 'deduct',    icon: '💰', name: '扣钱（押金）',     desc: '从托管押金里扣',     level: '🔴', needsConfig: true },
+  { id: 'donate',    icon: '🎁', name: '强制小额捐款',     desc: '捐给慈善机构',       level: '🔴', needsConfig: true },
+  { id: 'lock',      icon: '🔒', name: '锁定电脑/暂停视频', desc: '强制中断当前活动',   level: '🔴', needsConfig: true },
+  { id: 'release',   icon: '⚠️', name: '释放质押文件',     desc: '不可逆，慎选',       level: '🟣', needsConfig: true },
 ];
 
 // ============== Tab ==============
@@ -893,6 +933,7 @@ function shareMyStats() {
 function openSettings() {
   document.getElementById('api-key-input').value = state.apiKey;
   document.getElementById('board-url-input').value = state.boardUrl;
+  document.getElementById('alert-email-input').value = state.alertEmail || '';
   document.getElementById('settings-modal').classList.remove('hidden');
   document.getElementById('settings-modal').classList.add('flex');
 }
@@ -903,8 +944,10 @@ function closeSettings() {
 function saveSettings() {
   state.apiKey = document.getElementById('api-key-input').value.trim();
   state.boardUrl = document.getElementById('board-url-input').value.trim().replace(/\/$/, '');
+  state.alertEmail = document.getElementById('alert-email-input').value.trim();
   localStorage.setItem('apiKey', state.apiKey);
   localStorage.setItem('boardUrl', state.boardUrl);
+  localStorage.setItem('alertEmail', state.alertEmail);
   document.getElementById('header-sub').textContent = state.apiKey ? '✅ API 已连接' : '未连接 API';
   closeSettings();
   if (document.querySelector('[data-page="monitor"]:not(.hidden)')) refreshBoardStatus();
@@ -1485,7 +1528,16 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
       // 顶部 Toast：让用户马上看到违规后果（5 秒后自动消失）
       showViolationToast(matched, json.reason || '');
-      // TODO(/speak hook): 硬件就绪后在此调用 fetch(state.boardUrl + '/speak', { method:'POST', body: JSON.stringify({ text: '检测到违规：' + matched[0].name }) }) 让发带语音播报惩罚
+      // 执行每条命中规则里声明的 punishments（有 action 的才真正调用，其余仅做展示）
+      matched.forEach(r => {
+        (r.punishments || []).forEach(pid => {
+          const p = PUNISHMENTS.find(x => x.id === pid);
+          if (p && typeof p.action === 'function') {
+            try { p.action({ rule: r, reason: json.reason || '', input }); }
+            catch (e) { console.warn('punishment action error', pid, e); }
+          }
+        });
+      });
       // 写入战绩事件
       matched.forEach(r => {
         const ev = {
