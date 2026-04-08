@@ -209,7 +209,7 @@ if (!state.myId) {
 //   deduct/donate       [占位] 需要支付/托管通道，未实现
 //   lock                [占位] 需要桌面端配合，浏览器无法真正锁屏
 //   release             [占位] 质押机制未落地
-//   voice_insult        [已实现] 走板子 /speak，由 Kimi 生成羞辱语 + edge-tts 通过 3.5mm 播报
+//   voice_insult        [已实现] 板子 Kimi 生成羞辱词 → PWA 用 window.speechSynthesis 在 iPhone Safari 本地播报
 //   email_alert         [已实现+需配置] 走板子 /email，需要在设置里填收件邮箱
 // 带 action 字段的条目会在 runDetection 命中后被自动执行；其余仅做 UI 展示。
 const PUNISHMENTS = [
@@ -219,13 +219,32 @@ const PUNISHMENTS = [
   { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: '通过发带扬声器播放一段批评你的话', level: '🔴', needsConfig: false,
     action: async ({rule, reason}) => {
       if (!state.boardUrl) return;
+      let line = '别再违规了！';
       try {
-        await fetch(state.boardUrl + '/speak', {
+        const r = await fetch(state.boardUrl + '/speak', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({rule_name: rule.name, condition: rule.condition, reason}),
         });
-      } catch(e) { console.warn('speak failed', e); }
+        const data = await r.json();
+        if (data.line) line = data.line;
+      } catch(e) { console.warn('speak text fetch failed', e); }
+      // Play via iPhone/browser built-in TTS
+      try {
+        if (window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(line);
+          u.lang = 'zh-CN';
+          u.rate = 1.05;
+          u.pitch = 1.0;
+          u.volume = 1.0;
+          // Prefer a Chinese voice if available
+          const voices = window.speechSynthesis.getVoices();
+          const zh = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'));
+          if (zh) u.voice = zh;
+          window.speechSynthesis.speak(u);
+        }
+      } catch(e) { console.warn('tts speak failed', e); }
     }
   },
   { id: 'email_alert', icon: '✉️', name: '邮件通报', desc: '向指定邮箱发送违规邮件', level: '🟠', needsConfig: true,
@@ -1456,6 +1475,14 @@ function toggleMonitor() {
   }
   if (!state.boardUrl) return alert('先在 ⚙️ 设置里填板子地址');
   if (!state.apiKey) return alert('先在 ⚙️ 设置里填 Anthropic Key');
+  // Unlock iOS Safari speech synthesis (requires user gesture)
+  try {
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    }
+  } catch(e) {}
   document.getElementById('monitor-toggle').textContent = '⏸ 停止监控';
   pollSceneOnce();
   if (sceneIntervalId) clearInterval(sceneIntervalId);

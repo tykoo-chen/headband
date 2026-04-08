@@ -4,7 +4,7 @@ AI 自律发带 - 板子端 Flask 服务（部署到 /root/server.py）
 提供接口：
   GET  /            - PWA 静态资源（index.html 等）
   GET  /scene       - 抓一帧摄像头图 + Kimi 生成文字描述，给 PWA 实时轮询
-  POST /speak       - 收到规则命中后，让 Kimi 生成羞辱语并通过 edge-tts + mpg123 从 3.5mm 播报
+  POST /speak       - 收到规则命中后，让 Kimi 生成羞辱语并以 JSON 返回，由 PWA 端 Web Speech API 播报
   POST /email       - 收到规则命中后发送邮件通报（当前只打日志，SMTP 待接）
 
 依赖安装（板子端）：
@@ -135,17 +135,6 @@ def speak():
         line = r.choices[0].message.content.strip().strip('"""')
     except Exception as e:
         return jsonify(error=f'kimi failed: {e}'), 500
-
-    # edge-tts 合成，mpg123 从 3.5mm 播放
-    mp3 = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
-    try:
-        subprocess.run(
-            ['edge-tts', '--voice', 'zh-CN-XiaoxiaoNeural', '--text', line, '--write-media', mp3],
-            check=True,
-        )
-        subprocess.Popen(['mpg123', '-q', mp3])
-    except Exception as e:
-        return jsonify(error=f'tts failed: {e}', line=line), 500
 
     print(f'[SPEAK PUNISHMENT] rule={rule} reason={reason} line={line}')
     return jsonify(ok=True, line=line)
