@@ -12,169 +12,188 @@
 <title>AI 自律发带</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
-  .tab-active { color: #f97316; }
+  body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; background: #fffbeb; }
+  * { border-radius: 0 !important; }
   .scroll-hide::-webkit-scrollbar { display: none; }
-  .bubble-user { background: #f97316; color: white; }
-  .bubble-ai { background: #f3f4f6; color: #111; }
-  .punish-card { transition: all .15s; }
-  .punish-card.checked { background: #fff7ed; border-color: #f97316; }
-  textarea, input { font-size: 16px; }
+  .tab-active { background: #f97316 !important; color: #000 !important; }
+  .tab-active .nav-icon { color: #000; }
+  .bubble-user { background: #f97316; color: #000; border: 4px solid #000; box-shadow: 4px 4px 0 0 #000; font-weight: 900; }
+  .bubble-ai   { background: #ffffff; color: #000; border: 4px solid #000; box-shadow: 4px 4px 0 0 #000; font-weight: 700; }
+  .punish-card { transition: all .15s; background: #ffffff; }
+  .punish-card.checked { background: #fbbf24; }
+  .nb-card { background: #ffffff; border: 4px solid #000; box-shadow: 8px 8px 0 0 #000; }
+  .nb-btn { border: 4px solid #000; box-shadow: 6px 6px 0 0 #000; font-weight: 900; text-transform: uppercase; transition: all .12s; }
+  .nb-btn:hover, .nb-btn:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 0 #000; }
+  .nb-chip { border: 2px solid #000; box-shadow: 3px 3px 0 0 #000; font-weight: 900; text-transform: uppercase; }
+  .nb-input { background: #fff7ed; border: 4px solid #000; padding: 10px 12px; font-weight: 700; width: 100%; outline: none; }
+  .nb-input:focus { background: #fef3c7; }
+  textarea, input, select { font-size: 16px; }
+  .nb-heading { display: inline-block; border-bottom: 4px solid #000; padding-bottom: 2px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.02em; }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  @keyframes flashRed { 0%,100% { background-color: transparent; } 50% { background-color: #fecaca; } }
+  .animate-flash { animation: flashRed 0.5s ease-in-out 3; }
+  @keyframes pop { 0% { transform: scale(0.92); } 50% { transform: scale(1.04); } 100% { transform: scale(1); } }
+  .animate-pop { animation: pop 0.3s ease-in-out; }
+  @keyframes vtIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 </style>
 </head>
-<body class="bg-gray-50 max-w-md mx-auto min-h-screen flex flex-col">
+<body class="max-w-md mx-auto min-h-screen flex flex-col border-x-4 border-black" style="background:#fffbeb;">
 
 <!-- 顶部 -->
-<header class="bg-white border-b sticky top-0 z-10">
+<header class="sticky top-0 z-10 border-b-4 border-black" style="background:#fdba74;">
   <div class="px-4 py-3 flex items-center justify-between">
     <div>
-      <div class="text-lg font-bold">AI 自律发带</div>
-      <div class="text-xs text-gray-500" id="header-sub">未连接 API</div>
+      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带</div>
+      <div class="text-[11px] font-black uppercase tracking-widest text-black/70" id="header-sub">未连接 API</div>
     </div>
-    <button onclick="openSettings()" class="text-2xl">⚙️</button>
+    <button onclick="openSettings()" class="nb-btn bg-white text-2xl w-12 h-12 flex items-center justify-center">⚙️</button>
   </div>
 </header>
 
 <!-- 主内容区 -->
-<main class="flex-1 overflow-y-auto pb-20" id="main">
+<main class="flex-1 overflow-y-auto pb-24" id="main">
 
   <!-- 1. 规划（教练）页 -->
   <section data-page="plan" class="p-4 hidden">
-    <div class="flex items-center justify-between mb-2">
-      <h2 class="text-xl font-bold">🎯 AI 规划教练</h2>
-      <button onclick="resetPlan()" class="text-xs text-gray-400">重开</button>
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-3xl nb-heading">🎯 AI 教练</h2>
+      <button onclick="resetPlan()" class="nb-btn bg-yellow-300 px-3 py-2 text-xs" style="background:#fbbf24;">重开</button>
     </div>
-    <p class="text-sm text-gray-500 mb-3">告诉 AI 你想达成什么。AI 会先反问你几个问题，把目标拆清楚，再给出可执行方案和规则。</p>
+    <p class="text-sm font-bold text-black mb-3 uppercase tracking-tight">告诉 AI 你想达成什么。AI 会先反问你几个问题，把目标拆清楚，再给出可执行方案和规则。</p>
     <div id="plan-chat" class="space-y-3 mb-3 min-h-[40vh]"></div>
     <div id="plan-result" class="space-y-3 mb-24"></div>
-    <div class="fixed bottom-16 left-0 right-0 max-w-md mx-auto bg-white border-t p-2 flex gap-2" id="plan-input-bar">
-      <textarea id="plan-input" rows="1" placeholder="先说一句你想达成的目标..." class="flex-1 border rounded-2xl px-3 py-2 resize-none outline-none focus:border-orange-400"></textarea>
-      <button onclick="sendPlan()" class="bg-orange-500 text-white px-4 rounded-2xl">发送</button>
+    <div class="fixed bottom-20 left-0 right-0 max-w-md mx-auto p-2 flex gap-2 border-t-4 border-black" style="background:#fffbeb;" id="plan-input-bar">
+      <textarea id="plan-input" rows="1" placeholder="先说一句你想达成的目标..." class="nb-input flex-1 resize-none"></textarea>
+      <button onclick="sendPlan()" class="nb-btn bg-orange-500 text-black px-4" style="background:#f97316;">发送</button>
     </div>
   </section>
 
   <!-- 3. 规则与触发页 -->
   <section data-page="rules" class="p-4 hidden">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-xl font-bold">📋 我的规则</h2>
-      <button onclick="newRule()" class="text-orange-500 font-medium">+ 新建</button>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-3xl nb-heading">📋 我的规则</h2>
+      <button onclick="newRule()" class="nb-btn bg-orange-500 px-3 py-2 text-xs text-black" style="background:#f97316;">+ 新建</button>
     </div>
-    <div id="rules-list" class="space-y-3"></div>
+    <div id="rules-list" class="space-y-4"></div>
   </section>
 
   <!-- 4. 监控页（硬件） -->
   <section data-page="monitor" class="p-4 hidden">
-    <h2 class="text-xl font-bold mb-2">📷 实时监控</h2>
-    <div id="board-status" class="text-xs mb-2"></div>
-    <div class="bg-black aspect-video rounded-xl flex items-center justify-center text-white text-sm relative overflow-hidden">
+    <h2 class="text-3xl nb-heading mb-3">📷 实时监控</h2>
+    <div id="board-status" class="text-xs font-black uppercase tracking-widest mb-2"></div>
+    <div class="bg-black aspect-video flex items-center justify-center text-white text-sm relative overflow-hidden border-4 border-black shadow-[8px_8px_0_0_#000]" style="box-shadow:8px 8px 0 0 #f97316;">
       <img id="board-frame" class="w-full h-full object-cover hidden" alt="">
-      <div id="board-placeholder" class="text-center text-xs px-4">未连接发带<br>右上角 ⚙️ 填入板子地址</div>
+      <div id="board-placeholder" class="text-center text-xs px-4 font-black uppercase tracking-widest text-orange-400">未连接发带<br>右上角 ⚙️ 填入板子地址</div>
     </div>
-    <div class="grid grid-cols-2 gap-2 mt-3">
-      <button id="monitor-toggle" onclick="toggleMonitor()" class="bg-orange-500 text-white py-2 rounded-lg">▶️ 开始监控</button>
-      <button onclick="pollSceneOnce()" class="bg-gray-200 py-2 rounded-lg">🔍 立刻检测一次</button>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <button id="monitor-toggle" onclick="toggleMonitor()" class="nb-btn py-3 text-black" style="background:#f97316;">▶️ 开始监控</button>
+      <button onclick="pollSceneOnce()" class="nb-btn py-3 text-black" style="background:#fbbf24;">🔍 立刻检测</button>
     </div>
-    <div class="mt-3 bg-white border rounded-lg p-3">
-      <div class="text-xs text-gray-400">👀 当前看到 <span id="current-scene-time" class="ml-1 text-gray-400"></span></div>
-      <div id="current-scene" class="text-sm mt-1 text-gray-700">—</div>
+    <div class="mt-4 nb-card p-3" style="background:#fff7ed;">
+      <div class="text-xs font-black uppercase tracking-widest text-black/70">👀 当前看到 <span id="current-scene-time" class="ml-1"></span></div>
+      <div id="current-scene" class="text-sm font-bold mt-1 text-black">—</div>
     </div>
-    <div id="monitor-log" class="mt-3 space-y-2"></div>
+    <div id="monitor-log" class="mt-4 space-y-3"></div>
 
     <!-- 战绩区（并入监控页） -->
-    <div class="mt-6 pt-4 border-t">
-      <h3 class="text-lg font-bold mb-2">📊 我的战绩</h3>
+    <div class="mt-6 pt-4 border-t-4 border-black">
+      <h3 class="text-2xl nb-heading mb-3">📊 我的战绩</h3>
       <div id="stats-content"></div>
     </div>
   </section>
 
   <!-- 5. 好友页 -->
   <section data-page="friends" class="p-4 hidden">
-    <h2 class="text-xl font-bold mb-2">👥 好友监督</h2>
+    <h2 class="text-3xl nb-heading mb-3">👥 好友监督</h2>
     <div id="friends-content"></div>
   </section>
 
 </main>
 
 <!-- 底部 Tab -->
-<nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t flex">
-  <button onclick="switchTab('plan')" data-tab="plan" class="flex-1 py-3 text-center text-xs">
-    <div class="text-xl">🎯</div>教练
+<nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto flex border-t-4 border-x-4 border-black" style="background:#ffffff;">
+  <button onclick="switchTab('plan')" data-tab="plan" class="flex-1 py-3 text-center text-[10px] font-black uppercase tracking-widest border-r-4 border-black">
+    <div class="text-xl nav-icon">🎯</div>教练
   </button>
-  <button onclick="switchTab('rules')" data-tab="rules" class="flex-1 py-3 text-center text-xs">
-    <div class="text-xl">📋</div>规则
+  <button onclick="switchTab('rules')" data-tab="rules" class="flex-1 py-3 text-center text-[10px] font-black uppercase tracking-widest border-r-4 border-black">
+    <div class="text-xl nav-icon">📋</div>规则
   </button>
-  <button onclick="switchTab('monitor')" data-tab="monitor" class="flex-1 py-3 text-center text-xs">
-    <div class="text-xl">📷</div>监控
+  <button onclick="switchTab('monitor')" data-tab="monitor" class="flex-1 py-3 text-center text-[10px] font-black uppercase tracking-widest border-r-4 border-black">
+    <div class="text-xl nav-icon">📷</div>监控
   </button>
-  <button onclick="switchTab('friends')" data-tab="friends" class="flex-1 py-3 text-center text-xs">
-    <div class="text-xl">👥</div>好友
+  <button onclick="switchTab('friends')" data-tab="friends" class="flex-1 py-3 text-center text-[10px] font-black uppercase tracking-widest">
+    <div class="text-xl nav-icon">👥</div>好友
   </button>
 </nav>
 
 <!-- 设置弹窗 -->
-<div id="settings-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
-  <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
-    <h3 class="text-lg font-bold mb-3">设置</h3>
-    <label class="text-sm text-gray-600">Anthropic API Key</label>
-    <input id="api-key-input" type="password" placeholder="sk-ant-..." class="w-full border rounded-lg p-2 mt-1">
-    <p class="text-xs text-gray-400 mt-1">仅存在你手机本地，用于规则匹配</p>
-    <label class="text-sm text-gray-600 mt-3 block">发带地址（板子 IP）</label>
-    <input id="board-url-input" placeholder="http://192.168.50.197:5000" class="w-full border rounded-lg p-2 mt-1">
-    <p class="text-xs text-gray-400 mt-1">板子上 server.py 跑起来后填这里</p>
-    <label class="text-sm text-gray-600 mt-3 block">收件邮箱（邮件通报惩罚用）</label>
-    <input id="alert-email-input" type="email" placeholder="you@example.com" class="w-full border rounded-lg p-2 mt-1">
-    <p class="text-xs text-gray-400 mt-1">命中 email_alert 惩罚时会往这里发通知</p>
-    <!-- TODO: SMTP 配置（发件账号/密码/服务器）待实现，目前板子端仅打印日志 -->
-    <div class="flex gap-2 mt-4">
-      <button onclick="closeSettings()" class="flex-1 py-2 border rounded-lg">取消</button>
-      <button onclick="saveSettings()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg">保存</button>
+<div id="settings-modal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+  <div class="nb-card animate-pop p-5 w-full max-w-sm" style="background:#fffbeb;">
+    <h3 class="text-2xl nb-heading mb-4">⚙️ 设置</h3>
+    <label class="text-xs font-black uppercase tracking-widest text-black">Anthropic API Key</label>
+    <input id="api-key-input" type="password" placeholder="sk-ant-..." class="nb-input mt-1">
+    <p class="text-[10px] font-bold uppercase tracking-widest text-black/60 mt-1">仅存在你手机本地，用于规则匹配</p>
+    <label class="text-xs font-black uppercase tracking-widest text-black mt-3 block">发带地址（板子 IP）</label>
+    <input id="board-url-input" placeholder="http://192.168.50.197:5000" class="nb-input mt-1">
+    <p class="text-[10px] font-bold uppercase tracking-widest text-black/60 mt-1">板子上 server.py 跑起来后填这里</p>
+    <label class="text-xs font-black uppercase tracking-widest text-black mt-3 block">收件邮箱（邮件通报）</label>
+    <input id="alert-email-input" type="email" placeholder="you@example.com" class="nb-input mt-1">
+    <p class="text-[10px] font-bold uppercase tracking-widest text-black/60 mt-1">命中 email_alert 惩罚时会往这里发通知</p>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeSettings()" class="nb-btn flex-1 py-3 bg-white text-black">取消</button>
+      <button onclick="saveSettings()" class="nb-btn flex-1 py-3 text-black" style="background:#f97316;">保存</button>
     </div>
   </div>
 </div>
 
 <!-- 规则编辑弹窗 -->
-<div id="rule-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
-  <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto">
-    <h3 class="text-lg font-bold mb-3" id="rule-modal-title">新建规则</h3>
-
-    <label class="text-sm text-gray-600">规则名称</label>
-    <input id="rule-name" placeholder="例：不许抽烟" class="w-full border rounded-lg p-2 mt-1 mb-3">
-
-    <label class="text-sm text-gray-600">触发条件（用人话描述）</label>
-    <textarea id="rule-condition" rows="2" placeholder="例：画面中我正在抽烟或手里有点燃的香烟" class="w-full border rounded-lg p-2 mt-1 mb-3"></textarea>
-
-    <label class="text-sm text-gray-600">类型</label>
-    <select id="rule-type" class="w-full border rounded-lg p-2 mt-1 mb-3">
-      <option value="instant">即时违规（看到就罚）</option>
-      <option value="window">任务窗口（一段时间内必须做某事）</option>
-    </select>
-
-    <label class="text-sm text-gray-600">⏰ 生效时间 <span class="text-red-500">*必填</span></label>
-    <select id="rule-time-preset" class="w-full border rounded-lg p-2 mt-1 mb-2" onchange="onTimePresetChange()">
-      <option value="always">全天任何时候</option>
-      <option value="hours">每天某时段</option>
-      <option value="weekdays">仅工作日某时段</option>
-      <option value="weekends">仅周末某时段</option>
-      <option value="daily_before">每天某时间之前</option>
-      <option value="daily_after">每天某时间之后</option>
-    </select>
-    <div id="time-range-box" class="hidden gap-2 mb-3">
-      <input id="rule-time-start" type="time" value="22:00" class="flex-1 border rounded-lg p-2">
-      <span class="self-center">→</span>
-      <input id="rule-time-end" type="time" value="06:00" class="flex-1 border rounded-lg p-2">
+<div id="rule-modal" class="fixed inset-0 bg-black/60 hidden items-end sm:items-center justify-center z-50">
+  <div class="nb-card animate-slide-up w-full max-w-md max-h-[92vh] overflow-y-auto" style="background:#fffbeb;">
+    <div class="px-5 py-4 border-b-4 border-black flex items-center justify-between sticky top-0 z-10" style="background:#f97316;">
+      <h3 class="text-xl font-black uppercase tracking-tighter text-black" id="rule-modal-title">新建规则</h3>
+      <button onclick="closeRuleModal()" class="nb-btn bg-white w-10 h-10 text-2xl leading-none flex items-center justify-center text-black">×</button>
     </div>
-    <div id="time-single-box" class="hidden mb-3">
-      <input id="rule-time-single" type="time" value="22:00" class="w-full border rounded-lg p-2">
-    </div>
+    <div class="p-5">
+      <label class="text-xs font-black uppercase tracking-widest text-black">规则名称</label>
+      <input id="rule-name" placeholder="例：不许抽烟" class="nb-input mt-1 mb-4">
 
-    <div class="mb-3">
-      <div class="text-sm font-semibold mb-2">⚠️ 选择惩罚（多选）</div>
-      <div id="punish-options" class="space-y-2"></div>
-    </div>
+      <label class="text-xs font-black uppercase tracking-widest text-black">触发条件（用人话描述）</label>
+      <textarea id="rule-condition" rows="2" placeholder="例：画面中我正在抽烟或手里有点燃的香烟" class="nb-input mt-1 mb-4 resize-none"></textarea>
 
-    <div class="flex gap-2">
-      <button onclick="closeRuleModal()" class="flex-1 py-2 border rounded-lg">取消</button>
-      <button onclick="saveRule()" class="flex-1 py-2 bg-orange-500 text-white rounded-lg">保存</button>
+      <label class="text-xs font-black uppercase tracking-widest text-black">类型</label>
+      <select id="rule-type" class="nb-input mt-1 mb-4">
+        <option value="instant">即时违规（看到就罚）</option>
+        <option value="window">任务窗口（一段时间内必须做某事）</option>
+      </select>
+
+      <label class="text-xs font-black uppercase tracking-widest text-black">⏰ 生效时间 <span style="color:#b91c1c;">*必填</span></label>
+      <select id="rule-time-preset" class="nb-input mt-1 mb-2" onchange="onTimePresetChange()">
+        <option value="always">全天任何时候</option>
+        <option value="hours">每天某时段</option>
+        <option value="weekdays">仅工作日某时段</option>
+        <option value="weekends">仅周末某时段</option>
+        <option value="daily_before">每天某时间之前</option>
+        <option value="daily_after">每天某时间之后</option>
+      </select>
+      <div id="time-range-box" class="hidden gap-2 mb-4">
+        <input id="rule-time-start" type="time" value="22:00" class="nb-input flex-1">
+        <span class="self-center font-black text-2xl">→</span>
+        <input id="rule-time-end" type="time" value="06:00" class="nb-input flex-1">
+      </div>
+      <div id="time-single-box" class="hidden mb-4">
+        <input id="rule-time-single" type="time" value="22:00" class="nb-input">
+      </div>
+
+      <div class="mb-4">
+        <div class="text-sm font-black uppercase tracking-tight mb-2 text-black">⚠️ 选择惩罚（多选）</div>
+        <div id="punish-options" class="grid grid-cols-2 gap-2"></div>
+      </div>
+
+      <div class="flex gap-3">
+        <button onclick="closeRuleModal()" class="nb-btn flex-1 py-3 bg-white text-black">取消</button>
+        <button onclick="saveRule()" class="nb-btn flex-1 py-3 text-black" style="background:#f97316;">保存</button>
+      </div>
     </div>
   </div>
 </div>
@@ -331,29 +350,29 @@ function renderStats() {
   const ruleStats = Object.entries(perRule).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   let html = `
-    <div class="grid grid-cols-3 gap-2 mb-3">
-      <div class="bg-orange-50 rounded-xl p-3 text-center">
-        <div class="text-2xl font-bold text-orange-600">${todayEvents.length}</div>
-        <div class="text-xs text-gray-500">今日触发</div>
+    <div class="grid grid-cols-3 gap-2 mb-4" id="chart-7day-stats">
+      <div class="nb-card p-3 text-center" style="background:#fdba74;">
+        <div class="text-3xl font-black text-black">${todayEvents.length}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest text-black mt-1">今日触发</div>
       </div>
-      <div class="bg-green-50 rounded-xl p-3 text-center">
-        <div class="text-2xl font-bold text-green-600">${streak}</div>
-        <div class="text-xs text-gray-500">连续自律天</div>
+      <div class="nb-card p-3 text-center" style="background:#fbbf24;">
+        <div class="text-3xl font-black text-black">${streak}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest text-black mt-1">连续自律</div>
       </div>
-      <div class="bg-gray-50 rounded-xl p-3 text-center">
-        <div class="text-2xl font-bold text-gray-800">${events.length}</div>
-        <div class="text-xs text-gray-500">累计触发</div>
+      <div class="nb-card p-3 text-center" style="background:#ffffff;">
+        <div class="text-3xl font-black text-black">${events.length}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest text-black mt-1">累计触发</div>
       </div>
     </div>
 
-    <div class="bg-white border rounded-xl p-3 mb-3">
-      <div class="text-sm font-semibold mb-2">📉 最近 7 天</div>
+    <div class="nb-card p-3 mb-4" id="chart-7day">
+      <div class="text-sm font-black uppercase tracking-tight mb-3 text-black">📉 最近 7 天</div>
       <div class="flex items-end gap-1 h-24">
         ${days.map(d => `
           <div class="flex-1 flex flex-col items-center justify-end">
-            <div class="text-xs text-gray-400">${d.count || ''}</div>
-            <div class="w-full ${d.count > 0 ? 'bg-red-400' : 'bg-green-300'} rounded-t" style="height: ${(d.count / maxCount) * 80}%; min-height: 4px;"></div>
-            <div class="text-xs text-gray-500 mt-1">${d.label}</div>
+            <div class="text-[10px] font-black text-black">${d.count || ''}</div>
+            <div class="w-full border-2 border-black" style="background:${d.count > 0 ? '#b91c1c' : '#fbbf24'}; height: ${(d.count / maxCount) * 80}%; min-height: 6px;"></div>
+            <div class="text-[10px] font-black text-black mt-1">${d.label}</div>
           </div>
         `).join('')}
       </div>
@@ -361,21 +380,21 @@ function renderStats() {
   `;
 
   if (ruleStats.length > 0) {
-    html += `<div class="bg-white border rounded-xl p-3 mb-3">
-      <div class="text-sm font-semibold mb-2">🏆 最常违规的事</div>
+    html += `<div class="nb-card p-3 mb-4">
+      <div class="text-sm font-black uppercase tracking-tight mb-2 text-black">🏆 最常违规</div>
       ${ruleStats.map(([name, count]) => `
-        <div class="flex justify-between text-sm py-1 border-b last:border-0">
-          <span>${escapeHtml(name)}</span>
-          <span class="text-red-500 font-semibold">${count} 次</span>
+        <div class="flex justify-between text-sm py-2 border-b-2 border-black last:border-0 font-bold">
+          <span class="text-black">${escapeHtml(name)}</span>
+          <span class="font-black" style="color:#b91c1c;">${count} 次</span>
         </div>
       `).join('')}
     </div>`;
   }
 
   if (events.length > 0) {
-    html += `<button onclick="clearEvents()" class="w-full text-xs text-gray-400 py-2">清空战绩记录</button>`;
+    html += `<button onclick="clearEvents()" class="nb-btn w-full text-xs py-3 bg-white text-black">清空战绩记录</button>`;
   } else {
-    html += `<div class="text-center text-gray-400 py-6 text-sm">还没有任何触发记录<br>去上面模拟检测试试</div>`;
+    html += `<div class="nb-card text-center py-8 text-sm font-black uppercase tracking-widest text-black/60">还没有任何触发记录<br>去上面模拟检测试试</div>`;
   }
 
   box.innerHTML = html;
@@ -426,27 +445,28 @@ function renderFriends() {
 
   // ===== 身份卡 =====
   html += `
-    <div class="bg-gradient-to-br from-orange-400 to-red-500 rounded-2xl p-4 text-white mb-4">
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="text-xs opacity-80">${escapeHtml(myName)} · ${state.myId}</div>
-          <div class="text-2xl font-bold mt-1">🔥 ${streak} 天自律</div>
-          <div class="text-xs opacity-90 mt-1">今日触发 ${todayCount} 次 · 免罚卡 ${state.mercyCards} 张</div>
+    <div class="nb-card p-5 mb-5" style="background:#fdba74;">
+      <div class="flex items-start justify-between">
+        <div class="flex-1">
+          <div class="text-[10px] font-black uppercase tracking-widest text-black">${escapeHtml(myName)} · ${state.myId}</div>
+          <div class="text-7xl font-black text-black mt-2 leading-none">${streak}</div>
+          <div class="text-xs font-black uppercase tracking-widest text-black mt-1">天自律 🔥</div>
+          <div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-2">今日触发 ${todayCount} 次 · 免罚卡 ${state.mercyCards} 张</div>
         </div>
-        <div class="text-5xl">${streak >= 7 ? '🏆' : streak >= 3 ? '⭐' : '💪'}</div>
+        <div class="text-6xl">${streak >= 7 ? '🏆' : streak >= 3 ? '⭐' : '💪'}</div>
       </div>
-      <div class="flex gap-2 mt-3">
-        <button onclick="editMyName()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">✏️ 改名</button>
-        <button onclick="shareMyStats()" class="flex-1 bg-white/20 backdrop-blur py-2 rounded-lg text-sm">📤 战报</button>
+      <div class="flex gap-2 mt-4">
+        <button onclick="editMyName()" class="nb-btn flex-1 bg-white py-2 text-xs text-black">✏️ 改名</button>
+        <button onclick="shareMyStats()" class="nb-btn flex-1 py-2 text-xs text-black" style="background:#fbbf24;">📤 战报</button>
       </div>
     </div>
   `;
 
   // ===== 创建 / 加入 =====
   html += `
-    <div class="grid grid-cols-2 gap-2 mb-4">
-      <button onclick="openCreateGame()" class="bg-orange-500 text-white py-3 rounded-xl text-sm font-semibold">➕ 创建游戏</button>
-      <button onclick="openJoinGame()" class="bg-gray-800 text-white py-3 rounded-xl text-sm font-semibold">🔗 加入邀请</button>
+    <div class="grid grid-cols-2 gap-3 mb-5">
+      <button onclick="openCreateGame()" class="nb-btn py-3 text-sm text-black" style="background:#f97316;">➕ 创建游戏</button>
+      <button onclick="openJoinGame()" class="nb-btn py-3 text-sm text-white" style="background:#000000;">🔗 加入邀请</button>
     </div>
   `;
 
@@ -454,12 +474,12 @@ function renderFriends() {
   const games = state.games || [];
   if (games.length === 0) {
     html += `
-      <div class="bg-white border-2 border-dashed rounded-2xl p-8 text-center text-gray-400 text-sm">
+      <div class="nb-card p-8 text-center text-sm font-black uppercase tracking-widest text-black/60">
         还没有游戏<br>创建一个或加入好友的邀请
       </div>
     `;
   } else {
-    html += `<div class="text-xs text-gray-500 mb-2 px-1">我的游戏（${games.length}）</div>`;
+    html += `<div class="text-[10px] font-black uppercase tracking-widest text-black/70 mb-2 px-1">我的游戏（${games.length}）</div>`;
     games.forEach(g => { html += renderGameCard(g); });
   }
 
@@ -473,28 +493,31 @@ function renderGameCard(g) {
   let body = '';
   let footer = '';
 
+  let cardBg = '#ffffff';
+
   if (g.type === 'pool') {
+    cardBg = '#fef3c7';
     const total = (g.members || []).reduce((s, m) => s + (m.stake || 0), 0);
     const daysLeft = Math.max(0, Math.ceil((g.endTs - now) / 86400000));
     body = `
-      <div class="flex items-center justify-between mt-2">
+      <div class="flex items-center justify-between mt-3 nb-card p-3" style="background:#fbbf24;">
         <div>
-          <div class="text-2xl font-bold text-orange-600">¥${total}</div>
-          <div class="text-xs text-gray-500">${memberCount} 人参与</div>
+          <div class="text-4xl font-black text-black">¥${total}</div>
+          <div class="text-[10px] font-black uppercase tracking-widest text-black mt-1">${memberCount} 人参与</div>
         </div>
-        <div class="text-right text-xs text-gray-500">
+        <div class="text-right text-[10px] font-black uppercase tracking-widest text-black">
           剩 ${daysLeft} 天<br>每人押 ¥${g.config.stake}
         </div>
       </div>
-      <div class="mt-2 space-y-1">
-        ${(g.members || []).map(m => `<div class="text-xs flex justify-between bg-gray-50 rounded p-1">
-          <span>${escapeHtml(m.name)}${m.id === state.myId ? '（我）' : ''}</span>
-          <span class="text-red-500">违规 ${m.violations || 0}</span>
+      <div class="mt-3 space-y-2">
+        ${(g.members || []).map(m => `<div class="text-xs flex justify-between border-2 border-black p-2 font-bold bg-white">
+          <span class="text-black">${escapeHtml(m.name)}${m.id === state.myId ? '（我）' : ''}</span>
+          <span style="color:#b91c1c;">违规 ${m.violations || 0}</span>
         </div>`).join('')}
       </div>
     `;
     footer = `
-      <button onclick="settleGame('${g.id}')" class="flex-1 bg-red-500 text-white py-1.5 rounded text-xs">结算</button>
+      <button onclick="settleGame('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-white" style="background:#b91c1c;">结算</button>
     `;
   }
 
@@ -503,60 +526,59 @@ function renderGameCard(g) {
     const me = (g.members || []).find(m => m.id === state.myId);
     const checkedToday = me && me.lastDay === todayKey;
     body = `
-      <div class="text-3xl font-bold text-orange-600 mt-2">第 ${g.chain || 0} 天</div>
-      <div class="text-xs text-gray-500">${memberCount} 人接力中 · 目标 ${g.config.days} 天</div>
-      <div class="mt-2 space-y-1">
+      <div class="text-5xl font-black text-black mt-3">第 ${g.chain || 0} 天</div>
+      <div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-1">${memberCount} 人接力中 · 目标 ${g.config.days} 天</div>
+      <div class="mt-3 space-y-2">
         ${(g.members || []).map(m => {
           const ok = m.lastDay === todayKey;
-          return `<div class="text-xs flex justify-between bg-gray-50 rounded p-1">
-            <span>${escapeHtml(m.name)}${m.id === state.myId ? '（我）' : ''}</span>
-            <span class="${ok ? 'text-green-600' : 'text-gray-400'}">${ok ? '✅ 今日已打' : '⏳ 待打卡'}</span>
+          return `<div class="text-xs flex justify-between border-2 border-black p-2 font-bold" style="background:${ok ? '#fbbf24' : '#ffffff'};">
+            <span class="text-black">${escapeHtml(m.name)}${m.id === state.myId ? '（我）' : ''}</span>
+            <span class="text-black">${ok ? '✅ 今日已打' : '⏳ 待打卡'}</span>
           </div>`;
         }).join('')}
       </div>
     `;
     footer = checkedToday
-      ? `<div class="flex-1 text-center text-green-600 text-xs py-1.5">✅ 今日已打卡</div>`
-      : `<button onclick="checkinGame('${g.id}')" class="flex-1 bg-orange-500 text-white py-1.5 rounded text-xs">打卡</button>`;
+      ? `<div class="nb-chip flex-1 text-center text-xs py-2 text-black" style="background:#fbbf24;">✅ 今日已打卡</div>`
+      : `<button onclick="checkinGame('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-black" style="background:#f97316;">打卡</button>`;
   }
 
   if (g.type === 'contract') {
+    cardBg = '#000000';
     const daysLeft = Math.max(0, Math.ceil((g.endTs - now) / 86400000));
     const witnessName = (g.members || []).filter(m => m.id !== g.createdBy).map(m => escapeHtml(m.name)).join(', ') || '（待邀请）';
     const iAmCreator = state.myId === g.createdBy;
     const iAmWitness = !iAmCreator && (g.members || []).some(m => m.id === state.myId);
     const handed = g.handedOver;
     body = `
-      <div class="bg-gray-900 text-white rounded-lg p-3 mt-2">
-        <div class="text-sm font-bold">${escapeHtml(g.config.text || '未填写')}</div>
-        <div class="text-xs opacity-70 mt-1">立约人：${escapeHtml(g.createdByName || '未知')}</div>
-        <div class="text-xs opacity-70">见证人：${witnessName}</div>
-        <div class="text-xs opacity-70">约定代价：${escapeHtml(g.config.penalty)}</div>
-        <div class="text-xs opacity-70 mt-1">还剩 ${daysLeft} 天</div>
-        ${handed ? `<div class="mt-2 bg-red-600 text-white text-xs p-2 rounded">⚠️ 已违约，控制权已移交给见证人</div>` : ''}
+      <div class="border-4 p-3 mt-3" style="background:#000;color:#fdba74;border-color:#f97316;">
+        <div class="text-base font-black uppercase tracking-tight" style="color:#fdba74;">${escapeHtml(g.config.text || '未填写')}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest mt-2" style="color:#fbbf24;">立约人：${escapeHtml(g.createdByName || '未知')}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest" style="color:#fbbf24;">见证人：${witnessName}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest" style="color:#fbbf24;">代价：${escapeHtml(g.config.penalty)}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest mt-1" style="color:#fbbf24;">还剩 ${daysLeft} 天</div>
+        ${handed ? `<div class="mt-2 border-2 border-black p-2 text-xs font-black uppercase tracking-widest animate-pulse" style="background:#b91c1c;color:#fff;">⚠️ 已违约，控制权已移交给见证人</div>` : ''}
       </div>
     `;
     if (handed) {
-      // 控制权在见证人手里
       if (iAmWitness) {
         footer = `
-          <button onclick="executeContract('${g.id}')" class="flex-1 bg-red-500 text-white py-1.5 rounded text-xs">⚡ 执行惩罚</button>
-          <button onclick="forgiveContract('${g.id}')" class="flex-1 bg-gray-200 py-1.5 rounded text-xs">😇 饶 TA</button>
+          <button onclick="executeContract('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-white" style="background:#b91c1c;">⚡ 执行惩罚</button>
+          <button onclick="forgiveContract('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-black bg-white">😇 饶 TA</button>
         `;
       } else {
-        footer = `<div class="flex-1 text-center text-xs text-gray-500 py-1.5">等待 ${witnessName} 裁决…</div>`;
+        footer = `<div class="nb-chip flex-1 text-center text-xs py-2 text-black bg-white">等待 ${witnessName} 裁决…</div>`;
       }
     } else {
-      // 还在进行中
       if (iAmCreator) {
         footer = `
-          <button onclick="breakGame('${g.id}')" class="flex-1 bg-gray-200 py-1.5 rounded text-xs">承认违约</button>
-          <button onclick="completeGame('${g.id}')" class="flex-1 bg-green-500 text-white py-1.5 rounded text-xs">达成</button>
+          <button onclick="breakGame('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-black bg-white">承认违约</button>
+          <button onclick="completeGame('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-black" style="background:#fbbf24;">达成</button>
         `;
       } else if (iAmWitness) {
-        footer = `<button onclick="reportBreak('${g.id}')" class="flex-1 bg-orange-500 text-white py-1.5 rounded text-xs">举报 TA 违约了</button>`;
+        footer = `<button onclick="reportBreak('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-black" style="background:#f97316;">举报违约</button>`;
       } else {
-        footer = `<div class="flex-1 text-center text-xs text-gray-400 py-1.5">围观中</div>`;
+        footer = `<div class="nb-chip flex-1 text-center text-xs py-2 text-black bg-white">围观中</div>`;
       }
     }
   }
@@ -565,49 +587,50 @@ function renderGameCard(g) {
     const daysLeft = Math.max(0, Math.ceil((g.endTs - now) / 86400000));
     const sorted = [...(g.members || [])].sort((a, b) => (a.violations || 0) - (b.violations || 0));
     body = `
-      <div class="text-xs text-gray-500 mt-2">还剩 ${daysLeft} 天 · ${memberCount} 人参战</div>
-      <div class="mt-2 space-y-1">
-        ${sorted.map((m, i) => `<div class="text-xs flex justify-between bg-gray-50 rounded p-1">
-          <span>${i === 0 ? '👑 ' : ''}${escapeHtml(m.name)}${m.id === state.myId ? '（我）' : ''}</span>
-          <span class="text-red-500">${m.violations || 0} 次</span>
+      <div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-2">还剩 ${daysLeft} 天 · ${memberCount} 人参战</div>
+      <div class="mt-3 space-y-2">
+        ${sorted.map((m, i) => `<div class="text-xs flex justify-between border-2 border-black p-2 font-bold" style="background:${i === 0 ? '#fbbf24' : '#ffffff'};">
+          <span class="text-black">${i === 0 ? '👑 ' : ''}${escapeHtml(m.name)}${m.id === state.myId ? '（我）' : ''}</span>
+          <span style="color:#b91c1c;">${m.violations || 0} 次</span>
         </div>`).join('')}
       </div>
     `;
-    footer = `<button onclick="settleGame('${g.id}')" class="flex-1 bg-red-500 text-white py-1.5 rounded text-xs">结算</button>`;
+    footer = `<button onclick="settleGame('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-white" style="background:#b91c1c;">结算</button>`;
   }
 
   if (g.type === 'ruleset') {
     const daysLeft = Math.max(0, Math.ceil((g.endTs - now) / 86400000));
     const accepted = g.accepted;
     body = `
-      <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-2">
-        <div class="text-xs text-gray-500">规则内容</div>
-        <div class="text-sm font-semibold mt-1">📌 ${escapeHtml(g.config.rule)}</div>
-        <div class="text-xs text-gray-500 mt-1">由 ${escapeHtml(g.createdByName || '搭子')} 设定 · 锁定 ${g.config.days} 天</div>
-        ${accepted ? `<div class="text-xs text-green-600 mt-1">✅ 已采纳，剩 ${daysLeft} 天解锁</div>` : ''}
+      <div class="border-4 border-black p-3 mt-3" style="background:#fbbf24;">
+        <div class="text-[10px] font-black uppercase tracking-widest text-black">规则内容</div>
+        <div class="text-sm font-black uppercase tracking-tight mt-1 text-black">📌 ${escapeHtml(g.config.rule)}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-1">由 ${escapeHtml(g.createdByName || '搭子')} 设定 · 锁定 ${g.config.days} 天</div>
+        ${accepted ? `<div class="text-[10px] font-black uppercase tracking-widest text-black mt-1">✅ 已采纳，剩 ${daysLeft} 天解锁</div>` : ''}
       </div>
     `;
     footer = accepted
-      ? `<div class="flex-1 text-center text-xs text-gray-400 py-1.5">已生效</div>`
-      : `<button onclick="acceptGame('${g.id}')" class="flex-1 bg-orange-500 text-white py-1.5 rounded text-xs">采纳到我的规则</button>`;
+      ? `<div class="nb-chip flex-1 text-center text-xs py-2 text-black bg-white">已生效</div>`
+      : `<button onclick="acceptGame('${g.id}')" class="nb-btn flex-1 py-2 text-xs text-black" style="background:#f97316;">采纳</button>`;
   }
 
+  const titleColor = g.type === 'contract' ? '#fdba74' : '#000';
   return `
-    <div class="bg-white border rounded-2xl p-4 mb-3 shadow-sm">
+    <div class="nb-card p-4 mb-4" style="background:${cardBg};">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <div class="text-2xl">${t.icon}</div>
+        <div class="flex items-center gap-3">
+          <div class="text-3xl">${t.icon}</div>
           <div>
-            <div class="font-bold text-sm">${escapeHtml(g.name)}</div>
-            <div class="text-xs text-gray-400">${t.name}</div>
+            <div class="font-black text-base uppercase tracking-tight" style="color:${titleColor};">${escapeHtml(g.name)}</div>
+            <div class="text-[10px] font-black uppercase tracking-widest" style="color:${titleColor};opacity:.7;">${t.name}</div>
           </div>
         </div>
-        <button onclick="shareGame('${g.id}')" class="text-xs bg-gray-100 px-2 py-1 rounded">🔗 邀请</button>
+        <button onclick="shareGame('${g.id}')" class="nb-chip text-[10px] bg-white px-2 py-1 text-black">🔗 邀请</button>
       </div>
       ${body}
-      <div class="flex gap-2 mt-3">
+      <div class="flex gap-2 mt-4">
         ${footer}
-        <button onclick="deleteGame('${g.id}')" class="px-3 bg-gray-100 rounded text-xs text-gray-500">删</button>
+        <button onclick="deleteGame('${g.id}')" class="nb-btn px-3 text-xs text-black bg-white">删</button>
       </div>
     </div>
   `;
@@ -617,22 +640,22 @@ function renderGameCard(g) {
 function openCreateGame() {
   const keys = Object.keys(GAME_TYPES);
   const html = `
-    <div id="game-picker" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onclick="if(event.target.id==='game-picker')closeGamePicker()">
-      <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="text-lg font-bold">选择游戏类型</div>
-          <button onclick="closeGamePicker()" class="text-gray-400 text-2xl leading-none">×</button>
+    <div id="game-picker" class="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center" onclick="if(event.target.id==='game-picker')closeGamePicker()">
+      <div class="nb-card animate-slide-up w-full max-w-md max-h-[85vh] overflow-y-auto" style="background:#fffbeb;">
+        <div class="flex items-center justify-between p-4 border-b-4 border-black sticky top-0" style="background:#fbbf24;">
+          <div class="text-xl font-black uppercase tracking-tighter text-black">选择游戏类型</div>
+          <button onclick="closeGamePicker()" class="nb-btn bg-white w-10 h-10 text-2xl leading-none flex items-center justify-center text-black">×</button>
         </div>
-        <div class="space-y-2">
+        <div class="p-4 space-y-3">
           ${keys.map(k => {
             const t = GAME_TYPES[k];
-            return `<button onclick="closeGamePicker();createGame('${k}')" class="w-full text-left bg-gray-50 hover:bg-orange-50 active:bg-orange-100 border rounded-xl p-3 flex gap-3 items-start">
-              <div class="text-3xl">${t.icon}</div>
+            return `<button onclick="closeGamePicker();createGame('${k}')" class="nb-btn w-full text-left bg-white p-4 flex gap-3 items-center text-black">
+              <div class="text-5xl">${t.icon}</div>
               <div class="flex-1">
-                <div class="font-bold text-sm">${t.name}</div>
-                <div class="text-xs text-gray-500 mt-0.5">${t.desc}</div>
+                <div class="font-black text-base uppercase tracking-tight">${t.name}</div>
+                <div class="text-[10px] font-bold uppercase tracking-widest text-black/60 mt-1">${t.desc}</div>
               </div>
-              <div class="text-orange-500 text-xl">›</div>
+              <div class="text-2xl font-black">›</div>
             </button>`;
           }).join('')}
         </div>
@@ -683,32 +706,32 @@ function openGameForm(type) {
   const t = GAME_TYPES[type];
   const fields = FORM_FIELDS[type];
   const html = `
-    <div id="game-form" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onclick="if(event.target.id==='game-form')closeGameForm()">
-      <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div class="p-4 border-b sticky top-0 bg-white flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <div class="text-3xl">${t.icon}</div>
+    <div id="game-form" class="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center" onclick="if(event.target.id==='game-form')closeGameForm()">
+      <div class="nb-card animate-slide-up w-full max-w-md max-h-[92vh] overflow-y-auto" style="background:#fffbeb;">
+        <div class="p-4 border-b-4 border-black sticky top-0 z-10 flex items-center justify-between" style="background:#f97316;">
+          <div class="flex items-center gap-3">
+            <div class="text-4xl">${t.icon}</div>
             <div>
-              <div class="font-bold">${t.name}</div>
-              <div class="text-xs text-gray-500">${t.desc}</div>
+              <div class="font-black text-lg uppercase tracking-tighter text-black">${t.name}</div>
+              <div class="text-[10px] font-black uppercase tracking-widest text-black/70">${t.desc}</div>
             </div>
           </div>
-          <button onclick="closeGameForm()" class="text-gray-400 text-2xl leading-none">×</button>
+          <button onclick="closeGameForm()" class="nb-btn bg-white w-10 h-10 text-2xl leading-none flex items-center justify-center text-black">×</button>
         </div>
         <div class="p-4 space-y-3">
           ${fields.map(f => `
             <div>
-              <label class="text-xs text-gray-600">${f.label}${f.required ? ' <span class="text-red-500">*</span>' : ''}</label>
+              <label class="text-xs font-black uppercase tracking-widest text-black">${f.label}${f.required ? ' <span style="color:#b91c1c;">*</span>' : ''}</label>
               ${f.type === 'textarea'
-                ? `<textarea data-key="${f.key}" rows="2" placeholder="${f.placeholder || ''}" class="w-full border rounded-lg p-2 mt-1 text-sm focus:border-orange-400 outline-none"></textarea>`
-                : `<input data-key="${f.key}" type="${f.type}" placeholder="${f.placeholder || ''}" value="${f.value != null ? f.value : ''}" class="w-full border rounded-lg p-2 mt-1 text-sm focus:border-orange-400 outline-none">`
+                ? `<textarea data-key="${f.key}" rows="2" placeholder="${f.placeholder || ''}" class="nb-input mt-1 text-sm resize-none"></textarea>`
+                : `<input data-key="${f.key}" type="${f.type}" placeholder="${f.placeholder || ''}" value="${f.value != null ? f.value : ''}" class="nb-input mt-1 text-sm">`
               }
             </div>
           `).join('')}
         </div>
-        <div class="p-4 border-t sticky bottom-0 bg-white flex gap-2">
-          <button onclick="closeGameForm()" class="flex-1 py-2.5 border rounded-lg text-sm">取消</button>
-          <button onclick="submitGameForm('${type}')" class="flex-1 py-2.5 bg-orange-500 text-white rounded-lg text-sm font-semibold">创建并邀请</button>
+        <div class="p-4 border-t-4 border-black sticky bottom-0 flex gap-3" style="background:#fffbeb;">
+          <button onclick="closeGameForm()" class="nb-btn flex-1 py-3 bg-white text-sm text-black">取消</button>
+          <button onclick="submitGameForm('${type}')" class="nb-btn flex-1 py-3 text-sm text-black" style="background:#f97316;">创建并邀请</button>
         </div>
       </div>
     </div>
@@ -1115,7 +1138,7 @@ function renderPlanChat() {
   const box = document.getElementById('plan-chat');
   box.innerHTML = '';
   if (!state.planHistory || state.planHistory.length === 0) {
-    box.innerHTML = '<div class="text-center text-gray-400 mt-8"><div class="text-4xl mb-2">🎯</div>先说一句你想达成什么<div class="text-xs mt-1">例："我要戒烟" / "我要每天学习 4 小时"</div></div>';
+    box.innerHTML = '<div class="nb-card p-6 text-center mt-4" style="background:#fbbf24;"><div class="text-5xl mb-3">🎯</div><div class="text-sm font-black uppercase tracking-tight text-black">先说一句你想达成什么</div><div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-2">例："我要戒烟" / "我要每天学习 4 小时"</div></div>';
     return;
   }
   state.planHistory.forEach(m => {
@@ -1125,7 +1148,7 @@ function renderPlanChat() {
       ? m.content.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim()
       : m.content;
     if (!displayText && m.role === 'assistant') return;
-    div.innerHTML = `<div class="max-w-[85%] px-4 py-2 rounded-2xl ${m.role==='user'?'bubble-user':'bubble-ai'} whitespace-pre-wrap">${escapeHtml(displayText)}</div>`;
+    div.innerHTML = `<div class="max-w-[85%] px-4 py-3 ${m.role==='user'?'bubble-user':'bubble-ai'} whitespace-pre-wrap">${escapeHtml(displayText)}</div>`;
     box.appendChild(div);
   });
 }
@@ -1171,35 +1194,35 @@ function renderPlanResult(plan) {
   const result = document.getElementById('plan-result');
   let html = '';
   if (plan.summary) {
-    html += `<div class="p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm mt-2"><b>📌 ${escapeHtml(plan.summary)}</b></div>`;
+    html += `<div class="nb-card p-4 mt-2" style="background:#fbbf24;"><div class="text-sm font-black uppercase tracking-tight text-black">📌 ${escapeHtml(plan.summary)}</div></div>`;
   }
   if (plan.todos && plan.todos.length) {
-    html += `<div class="mt-3"><div class="font-bold text-green-700 mb-2">✅ 要做的事（${plan.todos.length}）</div>`;
+    html += `<div class="mt-4"><div class="text-lg nb-heading mb-3">✅ 要做的事（${plan.todos.length}）</div>`;
     plan.todos.forEach(t => {
-      html += `<div class="border border-green-200 bg-green-50 rounded-xl p-3 mb-2">
-        <div class="font-semibold">${escapeHtml(t.name)}</div>
-        <div class="text-sm text-gray-600 mt-1">${escapeHtml(t.detail || '')}</div>
-        <div class="text-xs text-green-700 mt-1">🕒 ${escapeHtml(t.time_desc || t.time_scope || '未指定时间')}</div>
+      html += `<div class="nb-card p-4 mb-3" style="background:#fef3c7;">
+        <div class="font-black text-base uppercase tracking-tight text-black">${escapeHtml(t.name)}</div>
+        <div class="text-sm font-bold text-black/80 mt-2">${escapeHtml(t.detail || '')}</div>
+        <div class="nb-chip inline-block bg-white px-2 py-1 mt-2 text-[10px] text-black">🕒 ${escapeHtml(t.time_desc || t.time_scope || '未指定时间')}</div>
       </div>`;
     });
     html += '</div>';
   }
   if (plan.donts && plan.donts.length) {
-    html += `<div class="mt-3"><div class="font-bold text-red-700 mb-2">🚫 不能做的事（${plan.donts.length}）<span class="text-xs text-gray-500 font-normal ml-1">触发即罚</span></div>`;
+    html += `<div class="mt-4"><div class="text-lg nb-heading mb-3" style="border-color:#b91c1c;">🚫 不能做的事（${plan.donts.length}）</div>`;
     plan.donts.forEach(d => {
       const ps = (d.suggested_punishments || []).map(id => {
         const p = PUNISHMENTS.find(x => x.id === id);
-        return p ? `<span class="inline-block bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs mr-1 mb-1">${p.icon}${p.name}</span>` : '';
+        return p ? `<span class="nb-chip inline-block px-2 py-1 text-[10px] text-black mr-1 mb-1" style="background:#fca5a5;">${p.icon}${p.name}</span>` : '';
       }).join('');
-      html += `<div class="border border-red-200 bg-red-50 rounded-xl p-3 mb-2">
-        <div class="font-semibold">${escapeHtml(d.name)}</div>
-        <div class="text-sm text-gray-600 mt-1">识别条件：${escapeHtml(d.condition || '')}</div>
-        <div class="text-xs text-red-700 mt-1">🕒 ${escapeHtml(d.time_desc || d.time_scope || '未指定时间')}</div>
-        <div class="mt-2">${ps}</div>
+      html += `<div class="nb-card p-4 mb-3" style="background:#fca5a5;">
+        <div class="font-black text-base uppercase tracking-tight text-black">${escapeHtml(d.name)}</div>
+        <div class="text-sm font-bold text-black/80 mt-2">识别条件：${escapeHtml(d.condition || '')}</div>
+        <div class="nb-chip inline-block bg-white px-2 py-1 mt-2 text-[10px] text-black">🕒 ${escapeHtml(d.time_desc || d.time_scope || '未指定时间')}</div>
+        <div class="mt-3">${ps}</div>
       </div>`;
     });
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(plan.donts))));
-    html += `<button onclick='adoptAllDonts("${encoded}")' class="w-full mt-2 bg-orange-500 text-white py-3 rounded-xl font-medium">一键采纳为规则（${plan.donts.length} 条）</button>`;
+    html += `<button onclick='adoptAllDonts("${encoded}")' class="nb-btn w-full mt-3 py-3 text-black" style="background:#f97316;">一键采纳为规则（${plan.donts.length} 条）</button>`;
     html += '</div>';
   }
   result.innerHTML = html;
@@ -1269,25 +1292,32 @@ function resetPlan() {
 function renderRules() {
   const list = document.getElementById('rules-list');
   if (state.rules.length === 0) {
-    list.innerHTML = '<div class="text-center text-gray-400 py-12"><div class="text-4xl mb-2">📋</div>还没有规则<div class="text-xs mt-1">去"规划"页让 AI 帮你生成，或手动新建</div></div>';
+    list.innerHTML = '<div class="nb-card text-center py-12 px-4" style="background:#fbbf24;"><div class="text-5xl mb-3">📋</div><div class="text-base font-black uppercase tracking-tight text-black">还没有规则</div><div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-2">去"教练"页让 AI 帮你生成，或手动新建</div></div>';
     return;
   }
   list.innerHTML = '';
   state.rules.forEach((r, i) => {
     const card = document.createElement('div');
-    card.className = 'border rounded-xl p-3 bg-white';
+    card.className = 'nb-card p-4';
+    const punishChips = (r.punishments || []).map(pid => {
+      const p = PUNISHMENTS.find(x => x.id === pid);
+      return p ? `<span class="nb-chip inline-block px-2 py-1 text-[10px] text-black mr-1 mb-1" style="background:#fdba74;">${p.icon}${p.name}</span>` : '';
+    }).join('');
     card.innerHTML = `
       <div class="flex items-start justify-between">
         <div class="flex-1">
-          <div class="font-semibold">${escapeHtml(r.name)}</div>
-          <div class="text-sm text-gray-500 mt-1">${escapeHtml(r.condition)}</div>
+          <div class="font-black text-base uppercase tracking-tight text-black">${escapeHtml(r.name)}</div>
+          <div class="text-sm font-bold text-black/70 mt-1">${escapeHtml(r.condition)}</div>
         </div>
-        <label class="ml-2"><input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRule(${i})"></label>
+        <label class="ml-2 cursor-pointer">
+          <input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRule(${i})" class="w-6 h-6 border-4 border-black appearance-none cursor-pointer" style="background:${r.enabled ? '#fbbf24' : '#fffbeb'};">
+        </label>
       </div>
-      <div class="text-xs text-gray-400 mt-2">🕒 ${escapeHtml(r.time_desc || r.time_scope || '全天')} · ${(r.punishments||[]).length} 项惩罚</div>
-      <div class="flex gap-2 mt-2">
-        <button onclick="editRule(${i})" class="flex-1 text-sm py-1 border rounded-lg">编辑</button>
-        <button onclick="deleteRule(${i})" class="flex-1 text-sm py-1 border rounded-lg text-red-500">删除</button>
+      <div class="nb-chip inline-block bg-white px-2 py-1 mt-3 text-[10px] text-black">🕒 ${escapeHtml(r.time_desc || r.time_scope || '全天')}</div>
+      <div class="mt-3">${punishChips}</div>
+      <div class="flex gap-2 mt-3">
+        <button onclick="editRule(${i})" class="nb-btn flex-1 text-xs py-2 bg-white text-black">编辑</button>
+        <button onclick="deleteRule(${i})" class="nb-btn flex-1 text-xs py-2 text-white" style="background:#b91c1c;">删除</button>
       </div>`;
     list.appendChild(card);
   });
@@ -1382,14 +1412,15 @@ function renderPunishOptions(selected) {
   PUNISHMENTS.forEach(p => {
     const checked = selected.includes(p.id);
     const div = document.createElement('label');
-    div.className = `punish-card flex items-center gap-2 border rounded-lg p-2 cursor-pointer ${checked?'checked':''}`;
+    div.className = `punish-card flex flex-col gap-1 border-4 border-black p-2 cursor-pointer shadow-[3px_3px_0_0_#000] ${checked?'checked':''}`;
     div.innerHTML = `
-      <input type="checkbox" data-pid="${p.id}" ${checked?'checked':''} class="punish-cb">
-      <span class="text-xl">${p.icon}</span>
-      <div class="flex-1">
-        <div class="text-sm font-medium">${p.name} <span class="text-xs">${p.level}</span></div>
-        <div class="text-xs text-gray-500">${p.desc}</div>
-      </div>`;
+      <input type="checkbox" data-pid="${p.id}" ${checked?'checked':''} class="punish-cb hidden">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">${p.icon}</span>
+        <span class="text-base">${p.level}</span>
+      </div>
+      <div class="text-[11px] font-black uppercase tracking-tight text-black leading-tight">${p.name}</div>
+      <div class="text-[9px] font-bold text-black/60 leading-tight">${p.desc}</div>`;
     div.querySelector('input').addEventListener('change', e => {
       div.classList.toggle('checked', e.target.checked);
     });
@@ -1531,10 +1562,10 @@ async function runDetection(input) {
   if (enabledRules.length === 0) return;
   const log = document.getElementById('monitor-log');
   const entry = document.createElement('div');
-  entry.className = 'border rounded-lg p-3 bg-white text-sm';
-  const thumbHtml = input.image ? `<img src="data:image/jpeg;base64,${input.image}" class="w-20 h-14 object-cover rounded float-right ml-2">` : '';
-  const snapText = input.text ? `<div class="text-xs text-gray-500 mt-1 italic">“${escapeHtml(String(input.text).slice(0,120))}”</div>` : '';
-  entry.innerHTML = `${thumbHtml}<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div>🔍 匹配规则中...</div>${snapText}`;
+  entry.className = 'nb-card p-3 text-sm';
+  const thumbHtml = input.image ? `<img src="data:image/jpeg;base64,${input.image}" class="w-20 h-14 object-cover float-right ml-2 border-4 border-black">` : '';
+  const snapText = input.text ? `<div class="text-[11px] font-bold text-black/60 mt-2 italic">"${escapeHtml(String(input.text).slice(0,120))}"</div>` : '';
+  entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="font-black uppercase tracking-tight text-black mt-2">🔍 匹配规则中...</div>${snapText}`;
   log.prepend(entry);
   while (log.children.length > 10) log.lastChild.remove();
 
@@ -1548,18 +1579,19 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
     const json = JSON.parse(reply.match(/\{[\s\S]*\}/)[0]);
     const matched = (json.matched || []).map(id => enabledRules.find(r => String(r.id) === String(id))).filter(Boolean);
     if (matched.length === 0) {
-      entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-green-600">✅ 未触发任何规则</div><div class="text-xs text-gray-500 mt-1">${escapeHtml(json.reason||'')}</div>`;
+      entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="nb-chip inline-block px-2 py-1 mt-2 text-xs text-black ml-1" style="background:#fbbf24;">✅ 未触发</div><div class="text-[11px] font-bold text-black/70 mt-2">${escapeHtml(json.reason||'')}</div>`;
     } else {
       const punishHtml = matched.map(r => {
         const ps = (r.punishments||[]).map(pid => {
           const p = PUNISHMENTS.find(x=>x.id===pid);
-          return p ? `<span class="inline-block bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs mr-1">${p.icon}${p.name}</span>` : '';
+          return p ? `<span class="nb-chip inline-block px-2 py-1 text-[10px] text-black mr-1 mb-1" style="background:#fdba74;">${p.icon}${p.name}</span>` : '';
         }).join('');
-        return `<div class="mt-2"><b>⚠️ ${escapeHtml(r.name)}</b><div class="mt-1">${ps}</div></div>`;
+        return `<div class="mt-3 border-2 border-black p-2" style="background:#fff7ed;"><div class="font-black uppercase tracking-tight text-black">⚠️ ${escapeHtml(r.name)}</div><div class="mt-2">${ps}</div></div>`;
       }).join('');
-      entry.className = 'border-2 border-red-500 rounded-lg p-3 bg-red-50 text-sm shadow-lg';
-      const badge = `<span class="inline-block bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded mr-2">❌ 违规</span>`;
-      entry.innerHTML = `${thumbHtml}<div class="text-gray-500 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-red-700 font-bold text-base mt-1">${badge}🚨 触发 ${matched.length} 条规则</div><div class="text-xs text-gray-700 mt-1">${escapeHtml(json.reason||'')}</div>${snapText}${punishHtml}`;
+      entry.className = 'nb-card p-3 text-sm animate-flash';
+      entry.style.background = '#fca5a5';
+      const badge = `<span class="nb-chip inline-block px-2 py-1 text-[10px] text-white mr-1" style="background:#b91c1c;">❌ 违规</span>`;
+      entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="font-black uppercase tracking-tight text-base mt-2 text-black">${badge}🚨 触发 ${matched.length} 条规则</div><div class="text-[11px] font-bold text-black/80 mt-2">${escapeHtml(json.reason||'')}</div>${snapText}${punishHtml}`;
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
       // 顶部 Toast：让用户马上看到违规后果（5 秒后自动消失）
       showViolationToast(matched, json.reason || '');
@@ -1601,7 +1633,7 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
       renderStats();
     }
   } catch (e) {
-    entry.innerHTML = `<div class="text-red-500">❌ ${e.message}</div>`;
+    entry.innerHTML = `<div class="font-black uppercase tracking-tight" style="color:#b91c1c;">❌ ${e.message}</div>`;
   }
 }
 
@@ -1615,14 +1647,14 @@ function showViolationToast(matched, reason) {
     document.body.appendChild(host);
   }
   const t = document.createElement('div');
-  t.style.cssText = 'pointer-events:auto;background:#dc2626;color:#fff;padding:12px 14px;border-radius:12px;box-shadow:0 10px 25px rgba(220,38,38,.45);font-size:14px;animation:vtIn .25s ease-out';
+  t.style.cssText = 'pointer-events:auto;background:#000;color:#fdba74;padding:14px 16px;border:4px solid #f97316;box-shadow:8px 8px 0 0 #f97316;font-size:14px;animation:pop .3s ease-in-out, vtIn .25s ease-out;font-weight:900;text-transform:uppercase;letter-spacing:-0.01em;';
   const names = matched.map(r => escapeHtml(r.name)).join('、');
   const punishLabels = matched.flatMap(r => (r.punishments||[]).map(pid => {
     const p = PUNISHMENTS.find(x=>x.id===pid); return p ? p.icon + p.name : '';
   })).filter(Boolean).join(' ');
-  t.innerHTML = `<div style="font-weight:700;font-size:15px">❌ 检测到违规：${names}</div>`
-    + (reason ? `<div style="opacity:.9;margin-top:4px;font-size:12px">${escapeHtml(reason)}</div>` : '')
-    + (punishLabels ? `<div style="margin-top:6px;font-size:12px;background:rgba(255,255,255,.18);padding:4px 8px;border-radius:6px">执行惩罚：${punishLabels}</div>` : '');
+  t.innerHTML = `<div style="font-weight:900;font-size:15px;color:#fdba74;">❌ 检测到违规：${names}</div>`
+    + (reason ? `<div style="opacity:.9;margin-top:6px;font-size:12px;color:#fbbf24;font-weight:700;text-transform:none;">${escapeHtml(reason)}</div>` : '')
+    + (punishLabels ? `<div style="margin-top:8px;font-size:12px;background:#f97316;color:#000;padding:6px 10px;border:2px solid #fdba74;font-weight:900;">执行惩罚：${punishLabels}</div>` : '');
   t.onclick = () => t.remove();
   host.appendChild(t);
   setTimeout(() => { t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 5000);
