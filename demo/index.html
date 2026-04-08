@@ -1479,8 +1479,13 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
         }).join('');
         return `<div class="mt-2"><b>⚠️ ${escapeHtml(r.name)}</b><div class="mt-1">${ps}</div></div>`;
       }).join('');
-      entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-red-600 font-semibold">🚨 触发 ${matched.length} 条规则</div><div class="text-xs text-gray-500 mt-1">${escapeHtml(json.reason||'')}</div>${punishHtml}`;
+      entry.className = 'border-2 border-red-500 rounded-lg p-3 bg-red-50 text-sm shadow-lg';
+      const badge = `<span class="inline-block bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded mr-2">❌ 违规</span>`;
+      entry.innerHTML = `${thumbHtml}<div class="text-gray-500 text-xs">${new Date().toLocaleTimeString()}</div><div class="text-red-700 font-bold text-base mt-1">${badge}🚨 触发 ${matched.length} 条规则</div><div class="text-xs text-gray-700 mt-1">${escapeHtml(json.reason||'')}</div>${snapText}${punishHtml}`;
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
+      // 顶部 Toast：让用户马上看到违规后果（5 秒后自动消失）
+      showViolationToast(matched, json.reason || '');
+      // TODO(/speak hook): 硬件就绪后在此调用 fetch(state.boardUrl + '/speak', { method:'POST', body: JSON.stringify({ text: '检测到违规：' + matched[0].name }) }) 让发带语音播报惩罚
       // 写入战绩事件
       matched.forEach(r => {
         const ev = {
@@ -1511,6 +1516,29 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
   } catch (e) {
     entry.innerHTML = `<div class="text-red-500">❌ ${e.message}</div>`;
   }
+}
+
+// ============== 违规 Toast ==============
+function showViolationToast(matched, reason) {
+  let host = document.getElementById('violation-toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'violation-toast-host';
+    host.style.cssText = 'position:fixed;top:12px;left:12px;right:12px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.style.cssText = 'pointer-events:auto;background:#dc2626;color:#fff;padding:12px 14px;border-radius:12px;box-shadow:0 10px 25px rgba(220,38,38,.45);font-size:14px;animation:vtIn .25s ease-out';
+  const names = matched.map(r => escapeHtml(r.name)).join('、');
+  const punishLabels = matched.flatMap(r => (r.punishments||[]).map(pid => {
+    const p = PUNISHMENTS.find(x=>x.id===pid); return p ? p.icon + p.name : '';
+  })).filter(Boolean).join(' ');
+  t.innerHTML = `<div style="font-weight:700;font-size:15px">❌ 检测到违规：${names}</div>`
+    + (reason ? `<div style="opacity:.9;margin-top:4px;font-size:12px">${escapeHtml(reason)}</div>` : '')
+    + (punishLabels ? `<div style="margin-top:6px;font-size:12px;background:rgba(255,255,255,.18);padding:4px 8px;border-radius:6px">执行惩罚：${punishLabels}</div>` : '');
+  t.onclick = () => t.remove();
+  host.appendChild(t);
+  setTimeout(() => { t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 5000);
 }
 
 // ============== 工具 ==============
