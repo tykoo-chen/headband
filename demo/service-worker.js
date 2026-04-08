@@ -1,4 +1,4 @@
-const CACHE = 'self-discipline-v12';
+const CACHE = 'self-discipline-v13';
 const ASSETS = [
   './',
   './index.html',
@@ -18,12 +18,14 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // 不缓存 API 请求
-  if (e.request.url.includes('api.anthropic.com')) return;
+  const url = new URL(e.request.url);
+  // 跨域请求（板子 / API）一律放行，不要拦截
+  if (url.origin !== self.location.origin) return;
+  // 同源 GET 才走缓存
+  if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
-      // 顺手把新请求也缓存一下
-      if (resp.ok && e.request.method === 'GET') {
+      if (resp.ok) {
         const clone = resp.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone));
       }
