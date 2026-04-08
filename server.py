@@ -19,6 +19,7 @@ import base64
 import threading
 
 import cv2
+import requests
 from flask import Flask, request, jsonify, send_from_directory, Response
 
 try:
@@ -29,6 +30,7 @@ except Exception:
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.environ.get('PWA_DIR', APP_DIR)
 MOONSHOT_API_KEY = os.environ.get('MOONSHOT_API_KEY', '')
+XAI_API_KEY = os.environ.get('XAI_API_KEY', '')
 
 app = Flask(__name__, static_folder=None)
 
@@ -135,8 +137,34 @@ def speak():
         line = r.choices[0].message.content.strip().strip('"""')
     except Exception as e:
         return jsonify(error=f'kimi failed: {e}'), 500
-    print(f'[SPEAK] rule={rule} reason={reason} line={line}')
-    return jsonify(ok=True, line=line)
+
+    # 用 Grok TTS 合成中文音频
+    audio_b64 = ''
+    if XAI_API_KEY:
+        try:
+            tts_resp = requests.post(
+                'https://api.x.ai/v1/tts',
+                headers={
+                    'Authorization': f'Bearer {XAI_API_KEY}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'text': line,
+                    'voice_id': 'eve',
+                    'language': 'zh-CN',
+                    'output_format': {'container': 'mp3', 'sample_rate': 24000},
+                },
+                timeout=30,
+            )
+            if tts_resp.status_code == 200:
+                audio_b64 = base64.b64encode(tts_resp.content).decode('ascii')
+            else:
+                print(f'[SPEAK] grok tts failed: {tts_resp.status_code} {tts_resp.text[:200]}')
+        except Exception as e:
+            print(f'[SPEAK] grok tts exception: {e}')
+
+    print(f'[SPEAK] rule={rule} line={line} audio_bytes={len(audio_b64)*3//4}')
+    return jsonify(ok=True, line=line, audio=audio_b64)
 
 
 # ----- /email -----

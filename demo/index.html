@@ -216,10 +216,11 @@ const PUNISHMENTS = [
   { id: 'vibrate',   icon: '📳', name: '发带震动',         desc: '硬件就绪后生效',     level: '🟢' },
   { id: 'buzzer',    icon: '🔔', name: '发带蜂鸣',         desc: '公共场合社死',       level: '🟢' },
   { id: 'led',       icon: '💡', name: 'LED 闪光',         desc: '强光视觉干扰',       level: '🟢' },
-  { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: '通过发带扬声器播放一段批评你的话', level: '🔴', needsConfig: false,
+  { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: 'Kimi 生成 + Grok TTS 合成中文音频由 PWA 播放', level: '🔴', needsConfig: false,
     action: async ({rule, reason}) => {
       if (!state.boardUrl) return;
       let line = '别再违规了！';
+      let audio = '';
       try {
         const r = await fetch(state.boardUrl + '/speak', {
           method: 'POST',
@@ -228,23 +229,30 @@ const PUNISHMENTS = [
         });
         const data = await r.json();
         if (data.line) line = data.line;
-      } catch(e) { console.warn('speak text fetch failed', e); }
-      // Play via iPhone/browser built-in TTS
+        if (data.audio) audio = data.audio;
+      } catch(e) { console.warn('speak fetch failed', e); }
+      // 优先 Grok TTS mp3，降级 iPhone 自带 Web Speech
+      if (audio) {
+        try {
+          const el = new Audio('data:audio/mp3;base64,' + audio);
+          el.volume = 1.0;
+          await el.play();
+          return;
+        } catch(e) { console.warn('grok mp3 play failed', e); }
+      }
       try {
         if (window.speechSynthesis) {
           window.speechSynthesis.cancel();
           const u = new SpeechSynthesisUtterance(line);
           u.lang = 'zh-CN';
           u.rate = 1.05;
-          u.pitch = 1.0;
           u.volume = 1.0;
-          // Prefer a Chinese voice if available
           const voices = window.speechSynthesis.getVoices();
           const zh = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'));
           if (zh) u.voice = zh;
           window.speechSynthesis.speak(u);
         }
-      } catch(e) { console.warn('tts speak failed', e); }
+      } catch(e) { console.warn('fallback tts failed', e); }
     }
   },
   { id: 'email_alert', icon: '✉️', name: '邮件通报', desc: '向指定邮箱发送违规邮件', level: '🟠', needsConfig: true,
