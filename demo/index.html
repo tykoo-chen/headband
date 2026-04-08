@@ -1410,8 +1410,17 @@ async function pollSceneOnce() {
     const r = await fetch(state.boardUrl + '/scene', { cache: 'no-store' });
     const data = await r.json();
     if (data.error) throw new Error(data.error);
-    sceneEl.textContent = data.scene;
-    await runDetection({ text: data.scene });
+    const text = data.text || data.scene || '';
+    const image = data.image || '';
+    if (image) {
+      const img = document.getElementById('board-frame');
+      img.src = 'data:image/jpeg;base64,' + image;
+      img.classList.remove('hidden');
+      const ph = document.getElementById('board-placeholder');
+      if (ph) ph.classList.add('hidden');
+    }
+    sceneEl.innerText = text;
+    await runDetection({ text, image });
   } catch (e) {
     sceneEl.innerHTML = `<span class="text-red-500">❌ ${e.message}</span>`;
   }
@@ -1423,7 +1432,9 @@ async function runDetection(input) {
   const log = document.getElementById('monitor-log');
   const entry = document.createElement('div');
   entry.className = 'border rounded-lg p-3 bg-white text-sm';
-  entry.innerHTML = `<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div>🔍 匹配规则中...</div>`;
+  const thumbHtml = input.image ? `<img src="data:image/jpeg;base64,${input.image}" class="w-20 h-14 object-cover rounded float-right ml-2">` : '';
+  const snapText = input.text ? `<div class="text-xs text-gray-500 mt-1 italic">“${escapeHtml(String(input.text).slice(0,120))}”</div>` : '';
+  entry.innerHTML = `${thumbHtml}<div class="text-gray-400 text-xs">${new Date().toLocaleTimeString()}</div><div>🔍 匹配规则中...</div>${snapText}`;
   log.prepend(entry);
   while (log.children.length > 10) log.lastChild.remove();
 
@@ -1456,6 +1467,8 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
           rule_name: r.name,
           reason: json.reason || '',
           punishments: r.punishments || [],
+          snapshot_text: input.text || '',
+          snapshot_image: input.image || '',
         };
         state.events.push(ev);
         // Feed（自己的 timeline）
