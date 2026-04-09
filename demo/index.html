@@ -220,6 +220,45 @@ if (!state.myId) {
   localStorage.setItem('myId', state.myId);
 }
 
+// ===== 启动迁移：清掉历史 events 里的 base64 快照图（之前写入过的会撑爆 localStorage） =====
+(function migrateEvents() {
+  try {
+    let changed = false;
+    state.events = (state.events || []).map(e => {
+      if (e && e.snapshot_image) { delete e.snapshot_image; changed = true; }
+      if (e && typeof e.snapshot_text === 'string' && e.snapshot_text.length > 200) {
+        e.snapshot_text = e.snapshot_text.slice(0, 200); changed = true;
+      }
+      return e;
+    });
+    if (state.events.length > 100) { state.events = state.events.slice(-100); changed = true; }
+    if (changed) localStorage.setItem('events', JSON.stringify(state.events));
+  } catch(_) {}
+})();
+
+// localStorage 容量安全写入：满了就裁剪 events/feed/planHistory 再重试
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch(e) {
+    console.warn('localStorage quota, pruning...', key, e.message);
+    try {
+      if (state.events && state.events.length > 20) state.events = state.events.slice(-20);
+      if (state.feed && state.feed.length > 20) state.feed = state.feed.slice(0, 20);
+      if (state.planHistory && state.planHistory.length > 10) state.planHistory = state.planHistory.slice(-10);
+      if (state.chatHistory && state.chatHistory.length > 10) state.chatHistory = state.chatHistory.slice(-10);
+      localStorage.setItem('events', JSON.stringify(state.events || []));
+      localStorage.setItem('feed', JSON.stringify(state.feed || []));
+      localStorage.setItem('planHistory', JSON.stringify(state.planHistory || []));
+      localStorage.setItem('chatHistory', JSON.stringify(state.chatHistory || []));
+      localStorage.setItem(key, value);
+    } catch(e2) {
+      console.error('localStorage still full after prune', e2);
+      alert('本地存储满了，已自动清理部分历史数据。如果还报错，请去设置里清空战绩。');
+    }
+  }
+}
+
 // PUNISHMENTS 动作库 —— 审计状态（2026-04-08）：
 //   vibrate/buzzer/led  [占位] 仅 UI 标签，当前板子 server.py 无对应通道，命中后只做展示
 //   bark                [需配置] 需要 Bark key，尚未实现
@@ -1209,7 +1248,8 @@ async function sendPlan() {
       } catch(e) { console.warn('JSON parse failed', e); }
     }
     state.planHistory.push(asstMsg);
-    localStorage.setItem('planHistory', JSON.stringify(state.planHistory));
+    if (state.planHistory.length > 20) state.planHistory = state.planHistory.slice(-20);
+    safeSetItem('planHistory', JSON.stringify(state.planHistory));
     renderPlanChat();
   } catch (e) {
     state.planHistory.pop();
@@ -1682,7 +1722,7 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
           }
         });
       });
-      // 写入战绩事件
+      // 写入战绩事件（不存 base64 快照图，避免撑爆 iOS Safari 5MB localStorage 上限）
       matched.forEach(r => {
         const ev = {
           ts: Date.now(),
@@ -1690,23 +1730,20 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
           rule_name: r.name,
           reason: json.reason || '',
           punishments: r.punishments || [],
-          snapshot_text: input.text || '',
-          snapshot_image: input.image || '',
+          snapshot_text: (input.text || '').slice(0, 200),
         };
         state.events.push(ev);
-        // Feed（自己的 timeline）
         state.feed.unshift({ ts: ev.ts, actor: state.myName || '我', type: 'trigger', text: `触发了"${r.name}"` });
-        // 给所有正在进行的游戏的"我"加违规计数
         (state.games || []).forEach(g => {
           const me = (g.members || []).find(m => m.id === state.myId);
           if (me) me.violations = (me.violations || 0) + 1;
         });
       });
-      if (state.events.length > 500) state.events = state.events.slice(-500);
-      if (state.feed.length > 200) state.feed = state.feed.slice(0, 200);
-      localStorage.setItem('events', JSON.stringify(state.events));
-      localStorage.setItem('feed', JSON.stringify(state.feed));
-      localStorage.setItem('games', JSON.stringify(state.games));
+      if (state.events.length > 100) state.events = state.events.slice(-100);
+      if (state.feed.length > 100) state.feed = state.feed.slice(0, 100);
+      safeSetItem('events', JSON.stringify(state.events));
+      safeSetItem('feed', JSON.stringify(state.feed));
+      safeSetItem('games', JSON.stringify(state.games));
       renderStats();
     }
   } catch (e) {
