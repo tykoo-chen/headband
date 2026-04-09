@@ -56,12 +56,17 @@ def _grab_loop():
 threading.Thread(target=_grab_loop, daemon=True).start()
 
 
-# ----- CORS -----
+# ----- CORS + 永远不缓存 HTML/JS（避免 iPhone Safari 死缓存老版本） -----
 @app.after_request
 def add_cors(resp):
     resp.headers['Access-Control-Allow-Origin'] = '*'
     resp.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
     resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    ct = resp.headers.get('Content-Type', '')
+    if any(t in ct for t in ('html', 'javascript', 'json')):
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
     return resp
 
 
