@@ -1185,9 +1185,16 @@ async function sendPlan() {
   renderPlanChat();
 
   try {
+    // 发给 Claude 时剥掉历史里的 JSON 代码块（节省 tokens，避免 quota 限制）
+    // 同时只保留最近 8 条消息，防止上下文无限膨胀
+    const stripJson = t => (t || '').replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
     const msgs = state.planHistory
       .filter(m => m.content !== '思考中...')
-      .map(m => ({ role: m.role, content: m.content }));
+      .slice(-8)
+      .map(m => ({
+        role: m.role,
+        content: m.role === 'assistant' ? (stripJson(m.content) || '(规则已生成)') : m.content,
+      }));
     const reply = await callClaude(msgs, PLAN_SYSTEM);
     state.planHistory.pop();
     const asstMsg = { role: 'assistant', content: reply };
