@@ -1491,9 +1491,17 @@ function renderRules() {
   });
 }
 
-function toggleRule(i) { state.rules[i].enabled = !state.rules[i].enabled; saveRules(); }
-function deleteRule(i) { if(confirm('删除这条规则？')){ state.rules.splice(i,1); saveRules(); renderRules(); } }
-function saveRules() { localStorage.setItem('rules', JSON.stringify(state.rules)); }
+function toggleRule(i) { state.rules[i].enabled = !state.rules[i].enabled; saveRules(); renderRules(); }
+function deleteRule(i) {
+  const r = state.rules[i];
+  if (r && r.locked_until && Date.now() < r.locked_until) {
+    const days = Math.ceil((r.locked_until - Date.now()) / 86400000);
+    alert(`🔒 这条规则被锁定中，${days} 天后才能删除`);
+    return;
+  }
+  if (confirm('删除这条规则？')) { state.rules.splice(i, 1); saveRules(); renderRules(); }
+}
+function saveRules() { safeSetItem('rules', JSON.stringify(state.rules)); }
 
 function newRule() {
   state.editingRule = null;
@@ -1502,6 +1510,11 @@ function newRule() {
   document.getElementById('rule-condition').value = '';
   document.getElementById('rule-type').value = 'instant';
   document.getElementById('rule-time-preset').value = 'always';
+  // 清空遗留的时间输入（避免上次编辑的值泄漏到本次新建）
+  ['rule-time-start', 'rule-time-end', 'rule-time-single'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   onTimePresetChange();
   renderPunishOptions([]);
   showRuleModal();
