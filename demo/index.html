@@ -1968,7 +1968,10 @@ function showViolationToast(matched, reason) {
 }
 
 // ============== 工具 ==============
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 // ============== 启动 ==============
 if (state.apiKey) document.getElementById('header-sub').textContent = '✅ API 已连接';
