@@ -1089,7 +1089,7 @@ function saveSettings() {
 }
 
 // ============== Claude API 调用 ==============
-async function callClaude(messages, system = null) {
+async function callClaude(messages, system = null, retries = 2) {
   if (!state.apiKey) {
     alert('请先在右上角 ⚙️ 设置中填入 Anthropic API Key');
     throw new Error('no api key');
@@ -1101,26 +1101,41 @@ async function callClaude(messages, system = null) {
   };
   if (system) body.system = system;
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': state.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    console.error('[Claude API error]', res.status, err);
-    // iOS 原生 alert 是模态可截图的，比气泡文字好定位
-    const full = `HTTP ${res.status}\n\n${err}`;
-    try { alert('Claude 调用失败（请截图发我）:\n\n' + full.slice(0, 800)); } catch(_) {}
-    throw new Error(full.slice(0, 400));
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': state.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        console.error('[Claude API error]', res.status, err);
+        // 4xx 错误不要重试（key 错/参数错/余额），直接抛
+        if (res.status >= 400 && res.status < 500) {
+          throw new Error(`HTTP ${res.status}: ${err.slice(0, 300)}`);
+        }
+        lastErr = new Error(`HTTP ${res.status}: ${err.slice(0, 300)}`);
+      } else {
+        const data = await res.json();
+        return data.content[0].text;
+      }
+    } catch (e) {
+      lastErr = e;
+      // "Load failed" / TypeError 是 Safari 网络错误，值得重试
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+        continue;
+      }
+    }
   }
-  const data = await res.json();
-  return data.content[0].text;
+  throw lastErr || new Error('Claude request failed');
 }
 
 // ============== 1. 对话 ==============
@@ -1759,15 +1774,46 @@ async function runDetection(input) {
   log.prepend(entry);
   while (log.children.length > 10) log.lastChild.remove();
 
-  const sys = `你是行为审查助手。判断输入场景描述是否触发以下任一规则。返回严格 JSON: {"matched": ["规则ID", ...], "reason": "简短说明"}。只返回 JSON。
-规则列表：
-${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition}"`).join('\n')}`;
+  // 用数字索引代替巨大的 Date.now() ID，降低 Claude 输出错号的概率
+  const sys = `你是一个严格的自律规则执法器。
+给你一段"场景描述"和若干条"规则"。你的唯一任务：判断场景描述里的用户行为是否触发了任何一条规则。
+
+【判断原则】
+- **宁可错杀不可放过**。只要场景描述里出现了规则条件所指对象的名字（包括品牌名、App 名、网站名、产品名、Logo、界面特征），即使用户"只是拿着"或"只是在看"，都视为触发。
+- **语义等价即命中**。比如规则说"不能玩小红书"，场景说"屏幕上显示小红书界面"或"手里拿着小红书"或"打开了小红书 App"，全部命中。
+- 品牌/网站名的大小写、中英文、全半角都不区分。"Pornhub" = "PornHub" = "pornhub" = "成人网站 Pornhub"。
+- 不要给用户找借口。不要说"不确定"。
+
+【返回格式】严格 JSON，不要任何解释/代码块/markdown，直接就是一行 JSON：
+{"matched":[索引数字数组],"reason":"10 字以内说明原因"}
+
+规则列表（用索引号）：
+${enabledRules.map((r, i) => `[${i}] 名称="${r.name}" 条件="${r.condition}"`).join('\n')}
+
+示例：
+场景描述="用户手里拿着手机，屏幕上显示小红书首页"
+规则 [0] 条件="画面里出现小红书 App"
+输出：{"matched":[0],"reason":"屏幕显示小红书"}
+
+场景描述="用户在看书"
+规则 [0] 条件="画面里出现小红书 App"
+输出：{"matched":[],"reason":"无相关 App"}`;
 
   try {
-    const messages = [{ role: 'user', content: '场景描述：' + input.text }];
+    const messages = [{ role: 'user', content: '场景描述：' + (input.text || '(空)') }];
     const reply = await callClaude(messages, sys);
-    const json = JSON.parse(reply.match(/\{[\s\S]*\}/)[0]);
-    const matched = (json.matched || []).map(id => enabledRules.find(r => String(r.id) === String(id))).filter(Boolean);
+    console.log('[runDetection] Claude reply:', reply);
+    // 抓取最后一个完整 JSON（防 Claude 前面加解释文字）
+    const jsonMatch = reply.match(/\{[^{}]*"matched"[^{}]*\}/);
+    if (!jsonMatch) throw new Error('no json in reply: ' + reply.slice(0, 80));
+    const json = JSON.parse(jsonMatch[0]);
+    // 索引号映射回规则对象
+    const matched = (json.matched || [])
+      .map(idx => {
+        const n = typeof idx === 'number' ? idx : parseInt(idx, 10);
+        return Number.isInteger(n) ? enabledRules[n] : null;
+      })
+      .filter(Boolean);
     if (matched.length === 0) {
       // 克制一次 = 多活一段时间（仿"戒烟一支烟多活 11 分钟"的说法）
       const bonusMinutes = 3 + Math.floor(Math.random() * 8); // 3-10 分钟
@@ -1841,7 +1887,11 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
       renderFriends();
     }
   } catch (e) {
-    entry.innerHTML = `<div class="font-black uppercase tracking-tight" style="color:#b91c1c;">❌ ${e.message}</div>`;
+    // 网络抖动等临时错误，给一个温和的提示（不像之前那样红字大写吓人）
+    const msg = /load failed|network|fetch/i.test(e.message) ? '⚠️ 网络抖动，已跳过本次检测' : `⚠️ ${e.message.slice(0,80)}`;
+    entry.innerHTML = `<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="text-[11px] font-bold text-black/60 mt-2">${escapeHtml(msg)}</div>`;
+    entry.style.opacity = '0.55';
+    console.warn('[runDetection] error:', e);
   }
 }
 
