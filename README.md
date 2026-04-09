@@ -2,8 +2,10 @@
 
 > 一条会"提醒"你别走神的发带：摄像头看你在干嘛，AI 判断你是不是在摸鱼，摸鱼就震你一下 + 扣你钱。
 
-🌐 在线体验（PWA）：<https://self-discipline-nine.vercel.app>
-📦 GitHub：<https://github.com/tykoo-chen/headband>
+**作者**：陈亮直 (Tykoo Chen) · <cliangzhi@outlook.com>
+**黑客松**：`#Redhackathon` · 2026-04-07 ~ 2026-04-09 · 北京
+**PWA**：<https://self-discipline-nine.vercel.app>
+**GitHub**：<https://github.com/tykoo-chen/headband>
 
 ![效果图占位](docs/images/hero.png)
 > （效果图待补：B 拍组装照，A 拍佩戴照，放到 `docs/images/` 下）
@@ -110,6 +112,26 @@ python3 main.py --mock   # 没有硬件时用 mock 模式
 
 ---
 
+## 🛠 Demo 版最终技术栈
+
+| 模块 | 技术 |
+|---|---|
+| 板子 | 地瓜 RDK X5 + USB 摄像头 + 小米 165W 移动电源 |
+| 板子服务 | Python / Flask / OpenCV（后台抓帧） |
+| 前端 | 单文件 HTML + Tailwind CDN + 原生 JS + Service Worker |
+| 视觉描述 | Kimi (Moonshot) `moonshot-v1-8k-vision-preview` |
+| 规则匹配 + 教练 | Claude Opus 4.6 (`claude-opus-4-6`) |
+| 语音合成 | iPhone Safari 内置 `window.speechSynthesis`（zh-CN） |
+| 状态存储 | localStorage（纯前端，无服务端数据库） |
+
+## 🕳 开发路上的血泪坑
+
+- **iOS Safari TTS 心跳保活**：`speechSynthesis` 在异步回调里会被静默排队，不开心跳就"说话突然冒出来"。我开了一个每 4 秒的静音 `speak('')` 心跳维持队列活跃。
+- **"The quota has been exceeded" 的假 API 错**：这个文案不是 Anthropic 的，是 iOS Safari localStorage 抛的 DOMException。我之前把 base64 摄像头快照塞 `state.events`，几十条就撑爆了 5MB 上限。修复后 safeSetItem 包装 + 迁移清理老数据。
+- **板子 3.5mm 音频放弃**：ES8326 驱动层路由不通，alsamixer / 重采样 / WM8960 HAT 全试了没声，最终决定把语音甩给 PWA 走 iPhone 喇叭——反而更响、零延迟。
+- **api.x.ai 在国内被墙**：尝试过 Grok TTS，板子热点出口连不上，改 3s 快速超时降级到 iPhone Web Speech。
+- **Neo-brutalist UI**：全黑 4px 边框 + 硬阴影 + 零圆角 + 大写字体，配得上"把自己管死"这种产品气质。
+
 ## 📝 License
 
-仅作为黑客松 Demo 使用。
+仅作为黑客松 Demo 使用。作者 陈亮直 · 2026 · #Redhackathon
