@@ -211,6 +211,7 @@ const state = {
   games: JSON.parse(localStorage.getItem('games') || '[]'),
   feed: JSON.parse(localStorage.getItem('feed') || '[]'),
   mercyCards: parseInt(localStorage.getItem('mercyCards') || '0'),
+  lifeBonus: parseFloat(localStorage.getItem('lifeBonus') || '0'),  // 累计多活分钟数
   myId: localStorage.getItem('myId') || '',
   myName: localStorage.getItem('myName') || '',
   editingRule: null,
@@ -488,6 +489,44 @@ function renderFriends() {
       </div>
     </div>
   `;
+
+  // ===== 生命值卡（多活多久） =====
+  const lb = state.lifeBonus || 0;
+  const lbAbs = Math.abs(lb);
+  const hours = Math.floor(lbAbs / 60);
+  const mins = Math.floor(lbAbs % 60);
+  const lbText = hours > 0 ? `${hours} 小时 ${mins} 分钟` : `${mins} 分钟`;
+  const lbColor = lb >= 0 ? '#16a34a' : '#b91c1c';
+  const lbIcon = lb >= 0 ? '🧬' : '💀';
+  const lbLabel = lb >= 0 ? '比同龄人多活了' : '比同龄人少活了';
+  html += `
+    <div class="nb-card p-5 mb-5" style="background:${lbColor}; color:white;">
+      <div class="text-[10px] font-black uppercase tracking-widest" style="color:white;">${lbIcon} ${lbLabel}</div>
+      <div class="text-5xl font-black mt-2 leading-none" style="color:white;">${lbText}</div>
+      <div class="text-[10px] font-black uppercase tracking-widest mt-2" style="color:rgba(255,255,255,0.85);">每克制一次 +3~10 分钟 · 每次违规 -15 分钟</div>
+    </div>
+  `;
+
+  // ===== 最近动态（feed 里跟寿命相关的） =====
+  const lifeFeed = (state.feed || []).filter(f => f.type === 'lifebonus' || f.type === 'lifeloss').slice(0, 8);
+  if (lifeFeed.length > 0) {
+    html += `<div class="text-[10px] font-black uppercase tracking-widest text-black/70 mb-2 px-1">最近动态</div>`;
+    html += `<div class="nb-card p-3 mb-5" style="background:#fff7ed;">`;
+    lifeFeed.forEach((f, i) => {
+      const isBonus = f.type === 'lifebonus';
+      const icon = isBonus ? '🧬' : '💀';
+      const color = isBonus ? '#16a34a' : '#b91c1c';
+      const t = new Date(f.ts).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+      html += `<div class="${i>0?'border-t-2 border-black':''} py-2 flex items-start gap-2">
+        <span class="text-base">${icon}</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-bold text-black break-all">${escapeHtml(f.text)}</div>
+          <div class="text-[9px] font-black uppercase tracking-widest text-black/50">${t}</div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
 
   // ===== 创建 / 加入 =====
   html += `
@@ -1696,7 +1735,23 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
     const json = JSON.parse(reply.match(/\{[\s\S]*\}/)[0]);
     const matched = (json.matched || []).map(id => enabledRules.find(r => String(r.id) === String(id))).filter(Boolean);
     if (matched.length === 0) {
-      entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="nb-chip inline-block px-2 py-1 mt-2 text-xs text-black ml-1" style="background:#fbbf24;">✅ 未触发</div><div class="text-[11px] font-bold text-black/70 mt-2">${escapeHtml(json.reason||'')}</div>`;
+      // 克制一次 = 多活一段时间（仿"戒烟一支烟多活 11 分钟"的说法）
+      const bonusMinutes = 3 + Math.floor(Math.random() * 8); // 3-10 分钟
+      state.lifeBonus = (state.lifeBonus || 0) + bonusMinutes;
+      const reasons = [
+        `此次行为让你又多活了 ${bonusMinutes} 分钟`,
+        `克制一次，寿命 +${bonusMinutes} 分钟`,
+        `好样的，这 ${bonusMinutes} 分钟是你自己挣的`,
+        `又是一次硬核克制，多活 ${bonusMinutes} 分钟`,
+        `这波操作，多活 ${bonusMinutes} 分钟`,
+      ];
+      const bonusText = reasons[Math.floor(Math.random() * reasons.length)];
+      state.feed.unshift({ ts: Date.now(), actor: state.myName || '我', type: 'lifebonus', text: bonusText });
+      if (state.feed.length > 100) state.feed = state.feed.slice(0, 100);
+      safeSetItem('feed', JSON.stringify(state.feed));
+      safeSetItem('lifeBonus', String(state.lifeBonus));
+      entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="nb-chip inline-block px-2 py-1 mt-2 text-xs text-black ml-1" style="background:#fbbf24;">✅ 未触发</div><div class="nb-chip inline-block px-2 py-1 mt-2 text-xs text-white ml-1" style="background:#16a34a;">🧬 +${bonusMinutes} 分钟</div><div class="text-[11px] font-bold text-black/70 mt-2">${escapeHtml(bonusText)}</div>`;
+      renderFriends();
     } else {
       const punishHtml = matched.map(r => {
         const ps = (r.punishments||[]).map(pid => {
@@ -1733,7 +1788,10 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
           snapshot_text: (input.text || '').slice(0, 200),
         };
         state.events.push(ev);
-        state.feed.unshift({ ts: ev.ts, actor: state.myName || '我', type: 'trigger', text: `触发了"${r.name}"` });
+        // 违规一次扣 15 分钟寿命
+        const loss = 15;
+        state.lifeBonus = Math.max(-99999, (state.lifeBonus || 0) - loss);
+        state.feed.unshift({ ts: ev.ts, actor: state.myName || '我', type: 'lifeloss', text: `触发"${r.name}"，少活 ${loss} 分钟` });
         (state.games || []).forEach(g => {
           const me = (g.members || []).find(m => m.id === state.myId);
           if (me) me.violations = (me.violations || 0) + 1;
@@ -1744,7 +1802,9 @@ ${enabledRules.map(r => `- ID="${r.id}" 名称="${r.name}" 条件="${r.condition
       safeSetItem('events', JSON.stringify(state.events));
       safeSetItem('feed', JSON.stringify(state.feed));
       safeSetItem('games', JSON.stringify(state.games));
+      safeSetItem('lifeBonus', String(state.lifeBonus));
       renderStats();
+      renderFriends();
     }
   } catch (e) {
     entry.innerHTML = `<div class="font-black uppercase tracking-tight" style="color:#b91c1c;">❌ ${e.message}</div>`;
