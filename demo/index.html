@@ -1016,7 +1016,9 @@ async function callClaude(messages, system = null) {
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(err);
+    console.error('[Claude API error]', res.status, err);
+    // 把完整错误 JSON 抛出来，方便在 UI 上看到 type + message
+    throw new Error(`HTTP ${res.status}: ${err.slice(0, 400)}`);
   }
   const data = await res.json();
   return data.content[0].text;
