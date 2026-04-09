@@ -1735,8 +1735,14 @@ function toggleMonitor() {
   sceneTimeTicker = setInterval(updateSceneTimeLabel, 1000);
 }
 
+let _pollBusy = false;  // 防止并发 runDetection 互相踩
 async function pollSceneOnce() {
   if (!state.boardUrl) return alert('先填板子地址');
+  if (_pollBusy) {
+    console.log('[pollSceneOnce] previous still running, skip');
+    return;
+  }
+  _pollBusy = true;
   unlockTTS();
   const sceneEl = document.getElementById('current-scene');
   sceneEl.textContent = '🔍 正在读取画面...';
@@ -1756,9 +1762,14 @@ async function pollSceneOnce() {
     sceneEl.innerText = text;
     sceneLastUpdated = Date.now();
     updateSceneTimeLabel();
-    await runDetection({ text, image });
+    // 如果 Kimi 自己报错了（文本以 "(Kimi 描述失败" 开头），不要拿它去匹配规则
+    if (text && !/^\(?(Kimi|未配置)/.test(text)) {
+      await runDetection({ text, image });
+    }
   } catch (e) {
-    sceneEl.innerHTML = `<span class="text-red-500">❌ ${e.message}</span>`;
+    sceneEl.innerHTML = `<span class="text-red-500">❌ ${escapeHtml(e.message || '读取失败')}</span>`;
+  } finally {
+    _pollBusy = false;
   }
 }
 
