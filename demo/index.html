@@ -63,7 +63,7 @@
 <header class="sticky top-0 z-10 border-b-4 border-black" style="background:#fdba74;">
   <div class="px-4 py-3 flex items-center justify-between">
     <div>
-      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带 <span class="text-[10px] align-middle">v40</span></div>
+      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带 <span class="text-[10px] align-middle">v41</span></div>
       <div class="text-[11px] font-black uppercase tracking-widest text-black/70" id="header-sub">未连接 API</div>
     </div>
     <button onclick="openSettings()" class="nb-btn bg-white text-2xl w-12 h-12 flex items-center justify-center">⚙️</button>
@@ -1833,37 +1833,62 @@ async function runDetection(input) {
 【判断原则】
 - **宁可错杀不可放过**。只要场景描述里出现了规则条件所指对象的名字（包括品牌名、App 名、网站名、产品名、Logo、界面特征），即使用户"只是拿着"或"只是在看"，都视为触发。
 - **语义等价即命中**。比如规则说"不能玩小红书"，场景说"屏幕上显示小红书界面"或"手里拿着小红书"或"打开了小红书 App"，全部命中。
-- 品牌/网站名的大小写、中英文、全半角都不区分。"Pornhub" = "PornHub" = "pornhub" = "成人网站 Pornhub"。
+- 品牌/网站名的大小写、中英文、全半角都不区分。
 - 不要给用户找借口。不要说"不确定"。
+- **严禁输出场景里没出现的规则名**。例如场景说"小红书"就只能匹配"小红书"相关规则，不能匹配"抽烟"规则。
 
-【返回格式】严格 JSON，不要任何解释/代码块/markdown，直接就是一行 JSON：
-{"matched":[索引数字数组],"reason":"10 字以内说明原因"}
+【返回格式】严格 JSON 一行，不要 markdown：
+{"matched":["规则名 1","规则名 2"],"reason":"10 字以内"}
+matched 字段必须是规则名字符串数组，**字符串必须和下面规则列表里的"名称"一字不差**。
 
-规则列表（用索引号）：
-${enabledRules.map((r, i) => `[${i}] 名称="${r.name}" 条件="${r.condition}"`).join('\n')}
+规则列表（共 ${enabledRules.length} 条，按名称匹配）：
+${enabledRules.map(r => `- 名称="${r.name}" 条件="${r.condition}"`).join('\n')}
 
 示例：
-场景描述="用户手里拿着手机，屏幕上显示小红书首页"
-规则 [0] 条件="画面里出现小红书 App"
-输出：{"matched":[0],"reason":"屏幕显示小红书"}
+场景="屏幕上显示小红书首页"
+规则：- 名称="不许刷小红书" 条件="画面里出现小红书 App"
+       - 名称="不许抽烟" 条件="画面里有香烟"
+输出：{"matched":["不许刷小红书"],"reason":"屏幕显示小红书"}
 
-场景描述="用户在看书"
-规则 [0] 条件="画面里出现小红书 App"
-输出：{"matched":[],"reason":"无相关 App"}`;
+场景="用户在看书"
+规则：- 名称="不许刷小红书" 条件="画面里出现小红书 App"
+输出：{"matched":[],"reason":"无相关内容"}`;
 
   try {
     const messages = [{ role: 'user', content: '场景描述：' + (input.text || '(空)') }];
     const reply = await callClaude(messages, sys);
-    console.log('[runDetection] Claude reply:', reply);
-    // 抓取最后一个完整 JSON（防 Claude 前面加解释文字）
-    const jsonMatch = reply.match(/\{[^{}]*"matched"[^{}]*\}/);
-    if (!jsonMatch) throw new Error('no json in reply: ' + reply.slice(0, 80));
-    const json = JSON.parse(jsonMatch[0]);
-    // 索引号映射回规则对象
-    const matched = (json.matched || [])
-      .map(idx => {
-        const n = typeof idx === 'number' ? idx : parseInt(idx, 10);
-        return Number.isInteger(n) ? enabledRules[n] : null;
+    console.log('[runDetection] reply:', reply, 'enabledRules:', enabledRules.map(r=>r.name));
+    // 抓取 JSON（用大括号配平防贪婪）
+    let jsonStr = null;
+    const start = reply.indexOf('{');
+    if (start >= 0) {
+      let depth = 0;
+      for (let i = start; i < reply.length; i++) {
+        if (reply[i] === '{') depth++;
+        else if (reply[i] === '}') { depth--; if (depth === 0) { jsonStr = reply.slice(start, i + 1); break; } }
+      }
+    }
+    if (!jsonStr) throw new Error('no json in reply: ' + reply.slice(0, 80));
+    const json = JSON.parse(jsonStr);
+    // 按名字精确匹配；同时做模糊匹配兜底（去掉前导"不许/不能/禁止"再比，或包含关系）
+    const norm = s => String(s || '').replace(/[不能许止禁\s]/g, '').toLowerCase();
+    const rawMatched = json.matched || [];
+    const matched = rawMatched
+      .map(name => {
+        if (typeof name === 'number' || /^\d+$/.test(String(name))) {
+          // 兼容老逻辑：如果模型仍返回数字，按索引取
+          return enabledRules[parseInt(name, 10)] || null;
+        }
+        // 1) 完全相等
+        let hit = enabledRules.find(r => r.name === name);
+        if (hit) return hit;
+        // 2) 归一化匹配（去掉"不/不能/禁止"等差异）
+        const target = norm(name);
+        hit = enabledRules.find(r => norm(r.name) === target);
+        if (hit) return hit;
+        // 3) 包含关系（兜底）
+        hit = enabledRules.find(r => norm(r.name).includes(target) || target.includes(norm(r.name)));
+        return hit || null;
       })
       .filter(Boolean);
     if (matched.length === 0) {
