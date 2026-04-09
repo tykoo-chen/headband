@@ -235,11 +235,12 @@ const PUNISHMENTS = [
   { id: 'vibrate',   icon: '📳', name: '发带震动',         desc: '硬件就绪后生效',     level: '🟢' },
   { id: 'buzzer',    icon: '🔔', name: '发带蜂鸣',         desc: '公共场合社死',       level: '🟢' },
   { id: 'led',       icon: '💡', name: 'LED 闪光',         desc: '强光视觉干扰',       level: '🟢' },
-  { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: 'Kimi 生成 + Grok TTS 合成中文音频由 PWA 播放', level: '🔴', needsConfig: false,
+  { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: 'Kimi 生成羞辱词 → iPhone 自带 TTS 在本地播报', level: '🔴', needsConfig: false,
     action: async ({rule, reason}) => {
       if (!state.boardUrl) return;
+      // 立刻先说一句兜底，保证在 fetch 前就解锁 + 有声
+      unlockTTS();
       let line = '别再违规了！';
-      let audio = '';
       try {
         const r = await fetch(state.boardUrl + '/speak', {
           method: 'POST',
@@ -248,17 +249,7 @@ const PUNISHMENTS = [
         });
         const data = await r.json();
         if (data.line) line = data.line;
-        if (data.audio) audio = data.audio;
       } catch(e) { console.warn('speak fetch failed', e); }
-      // 优先 Grok TTS mp3，降级 iPhone 自带 Web Speech
-      if (audio) {
-        try {
-          const el = new Audio('data:audio/mp3;base64,' + audio);
-          el.volume = 1.0;
-          await el.play();
-          return;
-        } catch(e) { console.warn('grok mp3 play failed', e); }
-      }
       try {
         if (window.speechSynthesis) {
           window.speechSynthesis.cancel();
@@ -1541,6 +1532,21 @@ function stopFrameStream() {
   if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
 }
 
+// 在用户 gesture 上下文里解锁 iOS Safari 的 speechSynthesis，
+// 否则后续在 fetch 回调里的 speak() 不会发声。
+let _ttsUnlocked = false;
+function unlockTTS() {
+  if (_ttsUnlocked) return;
+  try {
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+      _ttsUnlocked = true;
+    }
+  } catch(e) {}
+}
+
 function toggleMonitor() {
   if (monitorTimer || sceneIntervalId) {
     if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
@@ -1551,14 +1557,7 @@ function toggleMonitor() {
   }
   if (!state.boardUrl) return alert('先在 ⚙️ 设置里填板子地址');
   if (!state.apiKey) return alert('先在 ⚙️ 设置里填 Anthropic Key');
-  // Unlock iOS Safari speech synthesis (requires user gesture)
-  try {
-    if (window.speechSynthesis) {
-      const u = new SpeechSynthesisUtterance(' ');
-      u.volume = 0;
-      window.speechSynthesis.speak(u);
-    }
-  } catch(e) {}
+  unlockTTS();
   document.getElementById('monitor-toggle').textContent = '⏸ 停止监控';
   pollSceneOnce();
   if (sceneIntervalId) clearInterval(sceneIntervalId);
@@ -1570,6 +1569,7 @@ function toggleMonitor() {
 
 async function pollSceneOnce() {
   if (!state.boardUrl) return alert('先填板子地址');
+  unlockTTS();
   const sceneEl = document.getElementById('current-scene');
   sceneEl.textContent = '🔍 正在读取画面...';
   try {
