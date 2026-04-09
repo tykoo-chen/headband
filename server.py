@@ -138,7 +138,8 @@ def speak():
     except Exception as e:
         return jsonify(error=f'kimi failed: {e}'), 500
 
-    # 用 Grok TTS 合成中文音频
+    # 尝试 Grok TTS 合成中文音频；板子在国内热点上大概率到不了 api.x.ai，
+    # 所以只给 3 秒机会，失败立刻降级到 PWA 的 iPhone Web Speech。
     audio_b64 = ''
     if XAI_API_KEY:
         try:
@@ -154,14 +155,14 @@ def speak():
                     'language': 'zh-CN',
                     'output_format': {'container': 'mp3', 'sample_rate': 24000},
                 },
-                timeout=30,
+                timeout=(3, 3),  # 连接 3s，读 3s，快速失败
             )
             if tts_resp.status_code == 200:
                 audio_b64 = base64.b64encode(tts_resp.content).decode('ascii')
             else:
                 print(f'[SPEAK] grok tts failed: {tts_resp.status_code} {tts_resp.text[:200]}')
         except Exception as e:
-            print(f'[SPEAK] grok tts exception: {e}')
+            print(f'[SPEAK] grok tts unreachable (using iPhone TTS fallback): {e}')
 
     print(f'[SPEAK] rule={rule} line={line} audio_bytes={len(audio_b64)*3//4}')
     return jsonify(ok=True, line=line, audio=audio_b64)
