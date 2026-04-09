@@ -154,6 +154,39 @@ def speak():
     return jsonify(ok=True, line=line)
 
 
+# ----- /chat - Kimi 代理 Claude，避免 iPhone 直连 api.anthropic.com 被国内网络掐 -----
+@app.route('/chat', methods=['POST', 'OPTIONS'])
+def chat():
+    if request.method == 'OPTIONS':
+        return ('', 204)
+    if not client:
+        return jsonify(error='MOONSHOT_API_KEY not configured'), 500
+    data = request.get_json() or {}
+    messages = data.get('messages') or []
+    system = data.get('system') or ''
+    max_tokens = int(data.get('max_tokens') or 1024)
+    model = data.get('model') or 'moonshot-v1-32k'
+    # Kimi/Moonshot 是 OpenAI 兼容格式，system 走 messages 里第一条
+    msgs = []
+    if system:
+        msgs.append({'role': 'system', 'content': system})
+    for m in messages:
+        if not m or not m.get('role') or m.get('content') is None:
+            continue
+        msgs.append({'role': m['role'], 'content': m['content']})
+    try:
+        r = client.chat.completions.create(
+            model=model,
+            messages=msgs,
+            max_tokens=max_tokens,
+        )
+        text = r.choices[0].message.content
+        return jsonify(ok=True, text=text, model=model)
+    except Exception as e:
+        print(f'[CHAT] kimi failed: {e}')
+        return jsonify(ok=False, error=str(e)), 500
+
+
 # ----- /email -----
 @app.route('/email', methods=['POST', 'OPTIONS'])
 def email():

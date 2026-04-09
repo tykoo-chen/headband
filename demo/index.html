@@ -63,7 +63,7 @@
 <header class="sticky top-0 z-10 border-b-4 border-black" style="background:#fdba74;">
   <div class="px-4 py-3 flex items-center justify-between">
     <div>
-      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带 <span class="text-[10px] align-middle">v38</span></div>
+      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带 <span class="text-[10px] align-middle">v39</span></div>
       <div class="text-[11px] font-black uppercase tracking-widest text-black/70" id="header-sub">未连接 API</div>
     </div>
     <button onclick="openSettings()" class="nb-btn bg-white text-2xl w-12 h-12 flex items-center justify-center">⚙️</button>
@@ -1089,53 +1089,44 @@ function saveSettings() {
 }
 
 // ============== Claude API 调用 ==============
+// callClaude 现在走板子 /chat 代理（Kimi），避免 iPhone 直连 Anthropic 被国内网络掐
+// 名字保留是为了不影响其它调用点（renderRules / sendPlan / runDetection）
 async function callClaude(messages, system = null, retries = 2) {
-  if (!state.apiKey) {
-    alert('请先在右上角 ⚙️ 设置中填入 Anthropic API Key');
-    throw new Error('no api key');
+  if (!state.boardUrl) {
+    alert('请先在右上角 ⚙️ 设置里填板子地址');
+    throw new Error('no board url');
   }
-  const body = {
-    model: 'claude-opus-4-6',
-    max_tokens: 1024,
-    messages,
-  };
-  if (system) body.system = system;
+  const body = { messages, system: system || '', max_tokens: 1024 };
 
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch(state.boardUrl + '/chat', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': state.apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.text();
-        console.error('[Claude API error]', res.status, err);
-        // 4xx 错误不要重试（key 错/参数错/余额），直接抛
+        console.error('[/chat error]', res.status, err);
         if (res.status >= 400 && res.status < 500) {
           throw new Error(`HTTP ${res.status}: ${err.slice(0, 300)}`);
         }
         lastErr = new Error(`HTTP ${res.status}: ${err.slice(0, 300)}`);
       } else {
         const data = await res.json();
-        return data.content[0].text;
+        if (data.error) throw new Error(data.error);
+        return data.text || '';
       }
     } catch (e) {
       lastErr = e;
-      // "Load failed" / TypeError 是 Safari 网络错误，值得重试
       if (attempt < retries) {
         await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
         continue;
       }
     }
   }
-  throw lastErr || new Error('Claude request failed');
+  throw lastErr || new Error('chat request failed');
 }
 
 // ============== 1. 对话 ==============
