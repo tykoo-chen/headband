@@ -1605,9 +1605,24 @@ function startFrameStream() {
   if (frameTimer) clearInterval(frameTimer);
   if (!state.boardUrl) return;
   const img = document.getElementById('board-frame');
-  const tick = () => { img.src = state.boardUrl + '/frame?t=' + Date.now(); };
+  // 预加载一张到内存图像，只有成功才切到可见 img，避免 load failed 闪烁
+  let inflight = false;
+  const tick = () => {
+    if (inflight) return;          // 上一张还没完成就跳过，防止堆积
+    inflight = true;
+    const pre = new Image();
+    pre.onload = () => {
+      inflight = false;
+      img.src = pre.src;           // 只有成功才切
+      img.classList.remove('hidden');
+      const ph = document.getElementById('board-placeholder');
+      if (ph) ph.classList.add('hidden');
+    };
+    pre.onerror = () => { inflight = false; }; // 失败静默，保留上一帧
+    pre.src = state.boardUrl + '/frame?t=' + Date.now();
+  };
   tick();
-  frameTimer = setInterval(tick, 1000);
+  frameTimer = setInterval(tick, 1500);
 }
 function stopFrameStream() {
   if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
