@@ -61,8 +61,8 @@
       <button onclick="resetPlan()" class="nb-btn bg-yellow-300 px-3 py-2 text-xs" style="background:#fbbf24;">重开</button>
     </div>
     <p class="text-sm font-bold text-black mb-3 uppercase tracking-tight">告诉 AI 你想达成什么。AI 会先反问你几个问题，把目标拆清楚，再给出可执行方案和规则。</p>
-    <div id="plan-chat" class="space-y-3 mb-3 min-h-[40vh]"></div>
-    <div id="plan-result" class="space-y-3 mb-24"></div>
+    <div id="plan-chat" class="space-y-3 mb-24 min-h-[40vh]"></div>
+    <div id="plan-result" class="hidden"></div>
     <div class="fixed bottom-20 left-0 right-0 max-w-md mx-auto p-2 flex gap-2 border-t-4 border-black" style="background:#fffbeb;" id="plan-input-bar">
       <textarea id="plan-input" rows="1" placeholder="先说一句你想达成的目标..." class="nb-input flex-1 resize-none"></textarea>
       <button onclick="sendPlan()" class="nb-btn bg-orange-500 text-black px-4" style="background:#f97316;">发送</button>
@@ -1141,16 +1141,26 @@ function renderPlanChat() {
     box.innerHTML = '<div class="nb-card p-6 text-center mt-4" style="background:#fbbf24;"><div class="text-5xl mb-3">🎯</div><div class="text-sm font-black uppercase tracking-tight text-black">先说一句你想达成什么</div><div class="text-[10px] font-black uppercase tracking-widest text-black/70 mt-2">例："我要戒烟" / "我要每天学习 4 小时"</div></div>';
     return;
   }
-  state.planHistory.forEach(m => {
-    const div = document.createElement('div');
-    div.className = 'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start');
+  state.planHistory.forEach((m, idx) => {
     const displayText = m.role === 'assistant'
       ? m.content.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim()
       : m.content;
-    if (!displayText && m.role === 'assistant') return;
-    div.innerHTML = `<div class="max-w-[85%] px-4 py-3 ${m.role==='user'?'bubble-user':'bubble-ai'} whitespace-pre-wrap">${escapeHtml(displayText)}</div>`;
-    box.appendChild(div);
+    if (displayText || m.role === 'user') {
+      const div = document.createElement('div');
+      div.className = 'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start');
+      div.innerHTML = `<div class="max-w-[85%] px-4 py-3 ${m.role==='user'?'bubble-user':'bubble-ai'} whitespace-pre-wrap">${escapeHtml(displayText)}</div>`;
+      box.appendChild(div);
+    }
+    // 如果该助手消息附带方案，内联渲染一张方案卡
+    if (m.role === 'assistant' && m.plan) {
+      const planDiv = document.createElement('div');
+      planDiv.className = 'mt-1 mb-2';
+      planDiv.innerHTML = buildPlanResultHTML(m.plan);
+      box.appendChild(planDiv);
+    }
   });
+  // 滚动到底部，方便看最新消息
+  requestAnimationFrame(() => { window.scrollTo(0, document.body.scrollHeight); });
 }
 
 async function sendPlan() {
@@ -1171,18 +1181,18 @@ async function sendPlan() {
       .map(m => ({ role: m.role, content: m.content }));
     const reply = await callClaude(msgs, PLAN_SYSTEM);
     state.planHistory.pop();
-    state.planHistory.push({ role: 'assistant', content: reply });
-    localStorage.setItem('planHistory', JSON.stringify(state.planHistory));
-    renderPlanChat();
+    const asstMsg = { role: 'assistant', content: reply };
 
-    // 尝试从回复里提取 JSON 方案
+    // 尝试从回复里提取 JSON 方案，并挂到这条消息上
     const match = reply.match(/```json\s*([\s\S]*?)```/) || reply.match(/(\{[\s\S]*"donts"[\s\S]*\})/);
     if (match) {
       try {
-        const plan = JSON.parse(match[1]);
-        renderPlanResult(plan);
+        asstMsg.plan = JSON.parse(match[1]);
       } catch(e) { console.warn('JSON parse failed', e); }
     }
+    state.planHistory.push(asstMsg);
+    localStorage.setItem('planHistory', JSON.stringify(state.planHistory));
+    renderPlanChat();
   } catch (e) {
     state.planHistory.pop();
     state.planHistory.push({ role: 'assistant', content: '❌ 出错了：' + e.message });
@@ -1190,8 +1200,7 @@ async function sendPlan() {
   }
 }
 
-function renderPlanResult(plan) {
-  const result = document.getElementById('plan-result');
+function buildPlanResultHTML(plan) {
   let html = '';
   if (plan.summary) {
     html += `<div class="nb-card p-4 mt-2" style="background:#fbbf24;"><div class="text-sm font-black uppercase tracking-tight text-black">📌 ${escapeHtml(plan.summary)}</div></div>`;
@@ -1225,8 +1234,11 @@ function renderPlanResult(plan) {
     html += `<button onclick='adoptAllDonts("${encoded}")' class="nb-btn w-full mt-3 py-3 text-black" style="background:#f97316;">一键采纳为规则（${plan.donts.length} 条）</button>`;
     html += '</div>';
   }
-  result.innerHTML = html;
+  return html;
 }
+
+// 兼容旧调用（已经不再使用独立容器，直接内联到聊天流）
+function renderPlanResult(plan) { /* deprecated: 现在通过 renderPlanChat 内联渲染 */ }
 
 function adoptAllDonts(encoded) {
   const donts = JSON.parse(decodeURIComponent(escape(atob(encoded))));
