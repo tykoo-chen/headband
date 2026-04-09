@@ -238,9 +238,18 @@ const PUNISHMENTS = [
   { id: 'voice_insult', icon: '📢', name: '语音羞辱播报', desc: 'Kimi 生成羞辱词 → iPhone 自带 TTS 在本地播报', level: '🔴', needsConfig: false,
     action: async ({rule, reason}) => {
       if (!state.boardUrl) return;
-      // 立刻先说一句兜底，保证在 fetch 前就解锁 + 有声
-      unlockTTS();
-      let line = '别再违规了！';
+      // 同一条规则 30 秒内只播一次，避免每 5 秒一次轮询都 speak 一遍导致排队堆积
+      const now = Date.now();
+      if (_lastSpokenAt[rule.id] && now - _lastSpokenAt[rule.id] < 30000) {
+        console.log('voice_insult debounced for rule', rule.id);
+        return;
+      }
+      _lastSpokenAt[rule.id] = now;
+
+      // 先播一条默认句兜底，立刻有声；等 /speak 拿到 Kimi 的句子再覆盖
+      speakInsult('别再违规了！');
+
+      let line = '';
       try {
         const r = await fetch(state.boardUrl + '/speak', {
           method: 'POST',
@@ -250,19 +259,7 @@ const PUNISHMENTS = [
         const data = await r.json();
         if (data.line) line = data.line;
       } catch(e) { console.warn('speak fetch failed', e); }
-      try {
-        if (window.speechSynthesis) {
-          window.speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(line);
-          u.lang = 'zh-CN';
-          u.rate = 1.05;
-          u.volume = 1.0;
-          const voices = window.speechSynthesis.getVoices();
-          const zh = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'));
-          if (zh) u.voice = zh;
-          window.speechSynthesis.speak(u);
-        }
-      } catch(e) { console.warn('fallback tts failed', e); }
+      if (line && line !== '别再违规了！') speakInsult(line);
     }
   },
   { id: 'email_alert', icon: '✉️', name: '邮件通报', desc: '向指定邮箱发送违规邮件', level: '🟠', needsConfig: true,
@@ -1532,19 +1529,56 @@ function stopFrameStream() {
   if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
 }
 
-// 在用户 gesture 上下文里解锁 iOS Safari 的 speechSynthesis，
-// 否则后续在 fetch 回调里的 speak() 不会发声。
+// ========== iOS Safari TTS 可靠性套件 ==========
+// iOS 要求第一次 speak() 必须在用户手势里。之后若长时间不 speak，
+// 会重新进入"锁定"状态，在异步回调里 speak() 会被默默排队，
+// 等用户下次手势才一次性全放出来。解法：每 4 秒 speak 一个空串保活。
+
 let _ttsUnlocked = false;
+let _ttsHeartbeat = null;
+// { ruleId: lastSpokenTs } —— 同一条规则 30 秒内不重复
+const _lastSpokenAt = {};
+
 function unlockTTS() {
-  if (_ttsUnlocked) return;
+  if (!window.speechSynthesis) return;
   try {
-    if (window.speechSynthesis) {
-      const u = new SpeechSynthesisUtterance(' ');
-      u.volume = 0;
-      window.speechSynthesis.speak(u);
-      _ttsUnlocked = true;
-    }
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+    _ttsUnlocked = true;
   } catch(e) {}
+  if (!_ttsHeartbeat) {
+    // 每 4 秒吐一个零音量空串，保持 TTS 队列不进入休眠
+    _ttsHeartbeat = setInterval(() => {
+      try {
+        if (!window.speechSynthesis) return;
+        if (window.speechSynthesis.speaking) return;
+        const hb = new SpeechSynthesisUtterance(' ');
+        hb.volume = 0;
+        window.speechSynthesis.speak(hb);
+      } catch(e) {}
+    }, 4000);
+  }
+}
+
+function stopTTSHeartbeat() {
+  if (_ttsHeartbeat) { clearInterval(_ttsHeartbeat); _ttsHeartbeat = null; }
+}
+
+function speakInsult(line) {
+  if (!window.speechSynthesis) return;
+  try {
+    window.speechSynthesis.cancel();  // 清掉队列残留（包括心跳）
+    const u = new SpeechSynthesisUtterance(line);
+    u.lang = 'zh-CN';
+    u.rate = 1.05;
+    u.pitch = 1.0;
+    u.volume = 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    const zh = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'));
+    if (zh) u.voice = zh;
+    window.speechSynthesis.speak(u);
+  } catch(e) { console.warn('speak failed', e); }
 }
 
 function toggleMonitor() {
@@ -1552,6 +1586,7 @@ function toggleMonitor() {
     if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
     if (sceneIntervalId) { clearInterval(sceneIntervalId); sceneIntervalId = null; }
     if (sceneTimeTicker) { clearInterval(sceneTimeTicker); sceneTimeTicker = null; }
+    stopTTSHeartbeat();
     document.getElementById('monitor-toggle').textContent = '▶️ 开始监控';
     return;
   }
