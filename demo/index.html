@@ -1286,10 +1286,13 @@ function renderPlanChat() {
   requestAnimationFrame(() => { window.scrollTo(0, document.body.scrollHeight); });
 }
 
+let _planSending = false;  // 防双击并发发送导致消息乱序
 async function sendPlan() {
+  if (_planSending) return;
   const input = document.getElementById('plan-input');
   const text = input.value.trim();
   if (!text) return;
+  _planSending = true;
   if (!state.planHistory) state.planHistory = [];
   state.planHistory.push({ role: 'user', content: text });
   input.value = '';
@@ -1302,23 +1305,43 @@ async function sendPlan() {
     // 发给 Claude 时剥掉历史里的 JSON 代码块（节省 tokens，避免 quota 限制）
     // 同时只保留最近 8 条消息，防止上下文无限膨胀
     const stripJson = t => (t || '').replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
-    const msgs = state.planHistory
+    let msgs = state.planHistory
       .filter(m => m.content !== '思考中...')
       .slice(-8)
       .map(m => ({
         role: m.role,
         content: m.role === 'assistant' ? (stripJson(m.content) || '(规则已生成)') : m.content,
       }));
+    // Anthropic API 要求 messages[0].role === 'user'，否则 400
+    // .slice(-8) 后首条可能是 assistant，需要逐个 shift 直到第一条是 user
+    while (msgs.length > 0 && msgs[0].role !== 'user') msgs.shift();
+    if (msgs.length === 0) msgs = [{ role: 'user', content: text }];
     const reply = await callClaude(msgs, PLAN_SYSTEM);
     state.planHistory.pop();
     const asstMsg = { role: 'assistant', content: reply };
 
-    // 尝试从回复里提取 JSON 方案，并挂到这条消息上
-    const match = reply.match(/```json\s*([\s\S]*?)```/) || reply.match(/(\{[\s\S]*"donts"[\s\S]*\})/);
-    if (match) {
-      try {
-        asstMsg.plan = JSON.parse(match[1]);
-      } catch(e) { console.warn('JSON parse failed', e); }
+    // 从回复里提取 JSON 方案（优先 ```json``` 代码块；fallback 用非贪婪大括号配对）
+    let planJsonStr = null;
+    const fence = reply.match(/```json\s*([\s\S]*?)```/);
+    if (fence) {
+      planJsonStr = fence[1];
+    } else {
+      // 找第一个 { 后的配平 JSON，避免贪婪吃进后续段落
+      const start = reply.indexOf('{');
+      if (start >= 0) {
+        let depth = 0;
+        for (let i = start; i < reply.length; i++) {
+          if (reply[i] === '{') depth++;
+          else if (reply[i] === '}') {
+            depth--;
+            if (depth === 0) { planJsonStr = reply.slice(start, i + 1); break; }
+          }
+        }
+      }
+    }
+    if (planJsonStr) {
+      try { asstMsg.plan = JSON.parse(planJsonStr); }
+      catch(e) { console.warn('plan JSON parse failed', e); }
     }
     state.planHistory.push(asstMsg);
     if (state.planHistory.length > 20) state.planHistory = state.planHistory.slice(-20);
@@ -1328,6 +1351,8 @@ async function sendPlan() {
     state.planHistory.pop();
     state.planHistory.push({ role: 'assistant', content: '❌ 出错了：' + e.message });
     renderPlanChat();
+  } finally {
+    _planSending = false;
   }
 }
 
