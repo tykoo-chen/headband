@@ -63,7 +63,7 @@
 <header class="sticky top-0 z-10 border-b-4 border-black" style="background:#fdba74;">
   <div class="px-4 py-3 flex items-center justify-between">
     <div>
-      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带 <span class="text-[10px] align-middle">v39</span></div>
+      <div class="text-2xl font-black uppercase tracking-tighter text-black">AI 自律发带 <span class="text-[10px] align-middle">v40</span></div>
       <div class="text-[11px] font-black uppercase tracking-widest text-black/70" id="header-sub">未连接 API</div>
     </div>
     <button onclick="openSettings()" class="nb-btn bg-white text-2xl w-12 h-12 flex items-center justify-center">⚙️</button>
@@ -1803,8 +1803,6 @@ async function pollSceneOnce() {
 }
 
 async function runDetection(input) {
-  const enabledRules = state.rules.filter(r => r.enabled && isRuleActiveNow(r));
-  if (enabledRules.length === 0) return;
   const log = document.getElementById('monitor-log');
   const entry = document.createElement('div');
   entry.className = 'nb-card p-3 text-sm';
@@ -1813,6 +1811,20 @@ async function runDetection(input) {
   entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="font-black uppercase tracking-tight text-black mt-2">🔍 匹配规则中...</div>${snapText}`;
   log.prepend(entry);
   while (log.children.length > 10) log.lastChild.remove();
+
+  // 关键诊断：先看有没有启用的规则
+  const allRules = state.rules || [];
+  const enabledRules = allRules.filter(r => r.enabled && isRuleActiveNow(r));
+  if (enabledRules.length === 0) {
+    const totalCnt = allRules.length;
+    const enabledCnt = allRules.filter(r => r.enabled).length;
+    let why = '';
+    if (totalCnt === 0) why = '你还没有任何规则。去 📋 规则页新建一条。';
+    else if (enabledCnt === 0) why = `已有 ${totalCnt} 条规则，但全部被关闭。去 📋 规则页打开开关。`;
+    else why = `已有 ${enabledCnt} 条启用规则，但当前时间不在它们的生效时段内。`;
+    entry.innerHTML = `${thumbHtml}<div class="nb-chip inline-block bg-white px-2 py-0.5 text-[10px] text-black">${new Date().toLocaleTimeString()}</div><div class="nb-chip inline-block px-2 py-1 mt-2 text-xs text-black ml-1" style="background:#fbbf24;">⚠️ 无可用规则</div><div class="text-[11px] font-bold text-black/70 mt-2">${escapeHtml(why)}</div>${snapText}`;
+    return;
+  }
 
   // 用数字索引代替巨大的 Date.now() ID，降低 Claude 输出错号的概率
   const sys = `你是一个严格的自律规则执法器。
