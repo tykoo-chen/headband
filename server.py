@@ -117,7 +117,14 @@ def scene():
             )
             text = r.choices[0].message.content.strip()
         except Exception as e:
-            text = f'(Kimi 描述失败: {e})'
+            err_str = str(e)
+            # Kimi content_filter 通常意味着画面里出现了 NSFW/敏感内容
+            # 不要把整个错误吞掉——返回一个能让规则匹配触发的占位文本
+            if 'content_filter' in err_str or 'high risk' in err_str:
+                text = '画面中检测到可能的敏感内容（成人网站/成人内容/暴力等），Kimi 拒绝详细描述。'
+                print(f'[SCENE] Kimi content_filter triggered, returning placeholder')
+            else:
+                text = f'(Kimi 描述失败: {err_str[:120]})'
     else:
         text = '(未配置 MOONSHOT_API_KEY)'
     return jsonify(text=text, image=b64)
